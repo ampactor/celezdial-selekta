@@ -17,8 +17,8 @@
 // ─── FX CHAIN (configurable — see CHAIN CONFIGS below) ──────
 //
 // Current default: "Cathedral" (Config A)
-//   sumBus → Chebyshev → EQ3 → Vibrato → FeedbackDelay
-//     → Freeverb → MonitorEQ → tanh soft clip → destination
+//   sumBus → Chebyshev → EQ3 → Vibrato → Echo(CrossFade)
+//     → Freeverb → Chorus → MonitorEQ → tanh soft clip → destination
 //
 // Each FX node's role:
 //   Chebyshev    — Polynomial waveshaper. Generates harmonics from
@@ -31,8 +31,11 @@
 //   Vibrato      — Slow LFO pitch modulation on the full mix.
 //                  Simulates VHS tape wow/flutter. Low rate (0.25Hz)
 //                  + moderate depth = seasick drift, not chorus.
-//   FeedbackDelay— Single-tap delay with feedback. Placed after
-//                  vibrato so echoes inherit the pitch drift.
+//   Echo loop   — Hand-wired delay with feedback path containing
+//                  lowpass filter + tanh saturator. Each repeat gets
+//                  progressively darker and warmer (tape delay character).
+//                  Uses CrossFade for dry/wet mix. Placed after vibrato
+//                  so echoes inherit the pitch drift.
 //   Freeverb     — Schroeder reverb (parallel comb filters + series
 //                  allpass). Comb-filter resonances interact with
 //                  Chebyshev harmonics — metallic shimmer emerges.
@@ -48,10 +51,10 @@
 // engineRef      — Tone.js audio graph, created on first interaction.
 //                  Null until user clicks (browser autoplay policy).
 // activePlanets  — Set<string> of currently sounding planet names.
-// knobs          — Object mirroring all knob positions. Authoritative
-//                  source of truth for non-Shadow parameter values.
+// macros         — Object of 6 macro knob positions (0–1 each).
+//                  Each macro drives multiple params via MACRO_DEFS.
 //                  Shadow mode temporarily overrides FX params; when
-//                  Shadow disengages, knob values are restored.
+//                  Shadow disengages, macro-derived values are restored.
 // oscIndex       — Current position in OSC_TYPES cycle. Breathe
 //                  button advances this (hidden osc type switcher).
 // shadow         — Boolean. Shadow/Eclipse mode active. Ramps FX
@@ -62,15 +65,16 @@
 // Piano keyboard — Toggle individual planet voices on/off.
 // Eclipse        — Chaos mode. Ramps all FX toward extreme values,
 //                  widens osc spread, randomizes detune. Toggle off
-//                  restores knob values.
+//                  restores macro-derived values.
 // Breathe        — Easter egg: cycles oscillator type across all
 //                  voices (saw → sine → tri → square). If voices
 //                  are active, releases them first, then switches.
 //                  Label always says "Breathe" — the osc change
 //                  is discoverable, not advertised.
 // Listen pills   — Monitor EQ presets for different playback devices.
-// Knobs          — 19 SVG arc knobs, drag-to-adjust. Double-click
-//                  resets to default. Shift+drag for fine control.
+// Macros         — 6 SVG arc macro knobs (Bloom, Aether, Echo, Drift,
+//                  Grit, Tone). Each drives multiple params via curves.
+//                  Double-click resets to 0.5. Shift+drag for fine control.
 // Natal Chart    — Enter birth data, compute planetary positions via
 //                  circular-natal-horoscope-js, remap voice pitches
 //                  to zodiac-derived notes.
@@ -80,6 +84,7 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import * as Tone from "tone";
 import { Origin, Horoscope } from "circular-natal-horoscope-js";
+import { TUNING, SHADOW, MACROS, CHAINS, ACTIVE_CHAIN, LISTEN_PRESETS } from "./tuning";
 
 // ─── Font Constants ───────────────────────────────────────────
 // "'Rudelsberg', serif"
@@ -96,7 +101,7 @@ import { Origin, Horoscope } from "circular-natal-horoscope-js";
 // "'Ruigslay', serif"
 // "'Soiglat', serif"
 const FONTS = {
-  "title": "'Spiral ST', serif",
+  title: "'Spiral ST', serif",
   body: "system-ui, -apple-system, sans-serif",
   mono: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
 };
@@ -106,19 +111,164 @@ const FONTS = {
 // octave, velocity (mix weight), glyph, fixed stereo base,
 // pan group, osc count, osc spread.
 const PLANETS = {
-  Pluto:     { octave: 2, vel: 0.7, glyph: "\u2647", note: "C",  detuneCents: 0, panBase: -0.62, panGroup: "A", oscCount: 3, oscSpread: 55 },
-  Neptune:   { octave: 2, vel: 0.6, glyph: "\u2646", note: "Db", detuneCents: 0, panBase:  0.46, panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Jupiter:   { octave: 2, vel: 0.8, glyph: "\u2643", note: "D",  detuneCents: 0, panBase: -0.85, panGroup: "A", oscCount: 3, oscSpread: 55 },
-  Uranus:    { octave: 3, vel: 0.5, glyph: "\u2645", note: "Eb", detuneCents: 0, panBase:  0.72, panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Saturn:    { octave: 3, vel: 0.6, glyph: "\u2644", note: "E",  detuneCents: 0, panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
-  Chiron:    { octave: 3, vel: 0.4, glyph: "\u26B7", note: "F",  detuneCents: 0, panBase:  0.62, panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Mars:      { octave: 4, vel: 0.7, glyph: "\u2642", note: "Gb", detuneCents: 0, panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
-  Sun:       { octave: 4, vel: 1.0, glyph: "\u2609", note: "G",  detuneCents: 0, panBase:  0.15, panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Venus:     { octave: 4, vel: 0.5, glyph: "\u2640", note: "Ab", detuneCents: 0, panBase:  0.38, panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Ascendant: { octave: 4, vel: 0.6, glyph: "AC",     note: "A",  detuneCents: 0, panBase:  0.0,  panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Mercury:   { octave: 5, vel: 0.5, glyph: "\u263F", note: "Bb", detuneCents: 0, panBase:  0.08, panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Moon:      { octave: 5, vel: 0.4, glyph: "\u263D", note: "B",  detuneCents: 0, panBase: -0.23, panGroup: "A", oscCount: 3, oscSpread: 40 },
+  Pluto: {
+    octave: 2,
+    vel: 0.7,
+    glyph: "\u2647",
+    note: "C",
+    detuneCents: 0,
+    panBase: -0.62,
+    panGroup: "A",
+    oscCount: 2,
+    oscSpread: 55,
+  },
+  Neptune: {
+    octave: 2,
+    vel: 0.6,
+    glyph: "\u2646",
+    note: "Db",
+    detuneCents: 0,
+    panBase: 0.46,
+    panGroup: "D",
+    oscCount: 2,
+    oscSpread: 40,
+  },
+  Jupiter: {
+    octave: 2,
+    vel: 0.8,
+    glyph: "\u2643",
+    note: "D",
+    detuneCents: 0,
+    panBase: -0.85,
+    panGroup: "A",
+    oscCount: 2,
+    oscSpread: 55,
+  },
+  Uranus: {
+    octave: 3,
+    vel: 0.5,
+    glyph: "\u2645",
+    note: "Eb",
+    detuneCents: 0,
+    panBase: 0.72,
+    panGroup: "D",
+    oscCount: 3,
+    oscSpread: 40,
+  },
+  Saturn: {
+    octave: 3,
+    vel: 0.6,
+    glyph: "\u2644",
+    note: "E",
+    detuneCents: 0,
+    panBase: -0.15,
+    panGroup: "B",
+    oscCount: 3,
+    oscSpread: 45,
+  },
+  Chiron: {
+    octave: 3,
+    vel: 0.4,
+    glyph: "\u26B7",
+    note: "F",
+    detuneCents: 0,
+    panBase: 0.62,
+    panGroup: "D",
+    oscCount: 3,
+    oscSpread: 40,
+  },
+  Mars: {
+    octave: 4,
+    vel: 0.7,
+    glyph: "\u2642",
+    note: "Gb",
+    detuneCents: 0,
+    panBase: -0.38,
+    panGroup: "B",
+    oscCount: 3,
+    oscSpread: 50,
+  },
+  Sun: {
+    octave: 4,
+    vel: 1.0,
+    glyph: "\u2609",
+    note: "G",
+    detuneCents: 0,
+    panBase: 0.15,
+    panGroup: "C",
+    oscCount: 3,
+    oscSpread: 45,
+  },
+  Venus: {
+    octave: 4,
+    vel: 0.5,
+    glyph: "\u2640",
+    note: "Ab",
+    detuneCents: 0,
+    panBase: 0.38,
+    panGroup: "C",
+    oscCount: 3,
+    oscSpread: 45,
+  },
+  Ascendant: {
+    octave: 4,
+    vel: 0.6,
+    glyph: "AC",
+    note: "A",
+    detuneCents: 0,
+    panBase: 0.0,
+    panGroup: "C",
+    oscCount: 3,
+    oscSpread: 45,
+  },
+  Mercury: {
+    octave: 5,
+    vel: 0.5,
+    glyph: "\u263F",
+    note: "Bb",
+    detuneCents: 0,
+    panBase: 0.08,
+    panGroup: "D",
+    oscCount: 3,
+    oscSpread: 40,
+  },
+  Moon: {
+    octave: 5,
+    vel: 0.4,
+    glyph: "\u263D",
+    note: "B",
+    detuneCents: 0,
+    panBase: -0.23,
+    panGroup: "A",
+    oscCount: 3,
+    oscSpread: 40,
+  },
 };
+
+const PLANET_COLORS = {
+  Sun: ["#f28320", "#f15d22", "#d94126", "#a41d21", "#0c0c0c"],
+  Mercury: ["#595856", "#c0bdbc", "#8d8a88", "#f5f6f7", "#0c0c0c"],
+  Venus: ["#878a8d", "#d9b292", "#f4dbc4", "#414141", "#0c0c0c"],
+  Mars: ["#dabd9d", "#8c5c4a", "#f27b5f", "#c26d5c", "#0c0c0c"],
+  Jupiter: ["#282311", "#c08237", "#bfaf9b", "#c0a480", "#0c0c0c"],
+  Uranus: ["#3f575a", "#688a8d", "#95bbbe", "#d0ecf0", "#0c0c0c"],
+  Neptune: ["#657ba5", "#7495bf", "#4e5d74", "#779ebf", "#0c0c0c"],
+  Pluto: ["#4a3a5c", "#7b6898", "#a08cb8", "#c8b8d8", "#0c0c0c"],
+  Saturn: ["#8b7355", "#c4a96d", "#e0c98f", "#5a4a32", "#0c0c0c"],
+  Chiron: ["#2e6b5a", "#4a9e82", "#78c4a8", "#1a4238", "#0c0c0c"],
+  Moon: ["#c0c0c8", "#8888a0", "#e8e8f0", "#606078", "#0c0c0c"],
+  Ascendant: ["#d4af37", "#f0d060", "#a08020", "#f8e888", "#0c0c0c"],
+};
+const COLOR_OFF = "#0c0c0c";
+const KNOB_DEFAULT_COLOR = "#9070cc";
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbToHex(r, g, b) {
+  return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+}
 
 const KEYBOARD_ORDER = Object.keys(PLANETS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
@@ -129,143 +279,294 @@ const SHARP_POSITIONS = ["10%", "24%", "53%", "67%", "81%"];
 // Chebyshev intermodulation). Sine is purest. Tri is warm. Square is hollow.
 const OSC_TYPES = ["fatsawtooth", "fatsine", "fattriangle", "fatsquare"];
 
-// ─── Tuning Constants ────────────────────────────────────────
-const TUNING = {
-  sampleRate: 24000,
-  // Envelope (bloom)
-  attack: 1.5,
-  decay: 3.5,
-  sustain: 0.2,
-  release: 5.0,
-  // Chebyshev saturation
-  chebyOrder: 3,
-  chebyWet: 1.0,
-  // Tape EQ
-  eqHigh: -6,
-  eqMid: 3,
-  eqLow: 3,
-  eqHighFreq: 3000,
-  // VHS wow (vibrato)
-  vibratoFreq: 0.25,
-  vibratoDepth: 0.28,
-  vibratoWet: 0.8,
-  // Delay cascade
-  delayTime: 0.6,
-  delayFeedback: 0.68,
-  delayWet: 0.5,
-  // Algorithmic reverb (Freeverb — comb-filter resonances)
-  reverbRoom: 0.95,
-  reverbDamp: 1500,
-  reverbWet: 0.97,
-  // Damp sweep — LFO on reverb dampening for auto comb-filter morphing
-  dampSweepRate: 0.08,
-  dampSweepDepth: 0.0,
-  // Per-voice panning LFOs
-  panLfoFreq: 0.05,
-  panLfoAmplitude: 0.12,
-  // Monitor EQ crossover freqs
-  monitorLowFreq: 400,
-  monitorHighFreq: 2500,
-  // Stagger / retrigger
-  stagger: 0.45,
-  retriggerGap: 80,
-  // Phaser — sweeping allpass comb filters
-  phaserFreq: 0.3,
-  phaserOctaves: 3,
-  phaserBase: 350,
-  phaserQ: 10,
-  phaserWet: 0.0,
-  // Distortion — waveshaping saturator (stacks with Chebyshev)
-  distortion: 0.4,
-  distortionWet: 0.0,
-  // Shadow mode chaos targets
-  shadow: {
-    reverbWet: 1.0,
-    delayFeedback: 0.94,
-    delayWet: 0.88,
-    vibratoDepth: 0.72,
-    vibratoFreq: 0.06,
-    chebyWet: 1.0,
-    panLfoFreq: 0.18,
-    panLfoAmplitude: 0.55,
-    oscSpread: 120,
-    detuneRange: 15,
-    rampTime: 3,
-  },
-};
+// ─── Tuning Constants (imported from tuning.js) ─────────────
 
 // Circle-of-fifths mapping: Aries=C (spring/tonal center), sharps accumulate
 // through spring/summer, flats through fall/winter. Libra lands on Gb
 // (equidistant in sharps/flats — mirrors Libra's balance).
 const ZODIAC_NOTES = {
-  aries: "C", taurus: "G", gemini: "D", cancer: "A",
-  leo: "E", virgo: "B", libra: "Gb", scorpio: "Db",
-  sagittarius: "Ab", capricorn: "Eb", aquarius: "Bb", pisces: "F",
+  aries: "C",
+  taurus: "G",
+  gemini: "D",
+  cancer: "A",
+  leo: "E",
+  virgo: "B",
+  libra: "Gb",
+  scorpio: "Db",
+  sagittarius: "Ab",
+  capricorn: "Eb",
+  aquarius: "Bb",
+  pisces: "F",
 };
 
-const LISTEN_PRESETS = {
-  headphones:  { low: -2, mid: 0,  high: 1,  label: "HP" },
-  laptop:      { low: 6,  mid: 2,  high: 3,  label: "Laptop" },
-  phone:       { low: 4,  mid: 3,  high: 2,  label: "Phone" },
-  loudspeaker: { low: 3,  mid: -2, high: 0,  label: "Speaker" },
-};
-
-// ─── Scaling Helpers ─────────────────────────────────────────
-const logScale = (min, max) => ({
-  mapFromNorm: n => min * Math.pow(max / min, n),
-  mapToNorm: v => Math.log(v / min) / Math.log(max / min),
-});
-const linearScale = (min, max) => ({
-  mapFromNorm: n => min + n * (max - min),
-  mapToNorm: v => (v - min) / (max - min),
-});
+// ─── Macro Interpolation Helpers ─────────────────────────
+// All macros are 0–1. m=0.5 always produces TUNING defaults.
+// "split" variants have a 3-point anchor (min, mid, max).
+// "dormant" variants hold base value for m<=0.5, then ramp.
+function splitLog(min, mid, max, m) {
+  if (m <= 0.5) {
+    const t = m / 0.5;
+    return min * Math.pow(mid / min, t);
+  }
+  const t = (m - 0.5) / 0.5;
+  return mid * Math.pow(max / mid, t);
+}
+function splitLinear(min, mid, max, m) {
+  if (m <= 0.5) return min + (mid - min) * (m / 0.5);
+  return mid + (max - mid) * ((m - 0.5) / 0.5);
+}
+function dormantLinear(base, max, m) {
+  return m <= 0.5 ? base : base + (max - base) * ((m - 0.5) / 0.5);
+}
+function dormantLog(base, max, m) {
+  return m <= 0.5 ? base : base * Math.pow(max / base, (m - 0.5) / 0.5);
+}
 
 // ─── Knob Mapping ────────────────────────────────────────────
 
 const KNOB_MAP = {
   // Voice
-  attack:       { apply: (eng, v) => { Object.values(eng.synths).forEach(s => { s.set({ envelope: { attack: v } }); }); } },
-  decay:        { apply: (eng, v) => { Object.values(eng.synths).forEach(s => { s.set({ envelope: { decay: v } }); }); } },
-  sustain:      { apply: (eng, v) => { Object.values(eng.synths).forEach(s => { s.set({ envelope: { sustain: v } }); }); } },
-  release:      { apply: (eng, v) => { Object.values(eng.synths).forEach(s => { s.set({ envelope: { release: v } }); }); } },
+  attack: {
+    apply: (eng, v) => {
+      Object.values(eng.synths).forEach((s) => {
+        s.set({ envelope: { attack: v } });
+      });
+    },
+  },
+  decay: {
+    apply: (eng, v) => {
+      Object.values(eng.synths).forEach((s) => {
+        s.set({ envelope: { decay: v } });
+      });
+    },
+  },
+  sustain: {
+    apply: (eng, v) => {
+      Object.values(eng.synths).forEach((s) => {
+        s.set({ envelope: { sustain: v } });
+      });
+    },
+  },
+  release: {
+    apply: (eng, v) => {
+      Object.values(eng.synths).forEach((s) => {
+        s.set({ envelope: { release: v } });
+      });
+    },
+  },
   // Grit
-  gritDrive:    { apply: (eng, v) => { eng.fx.chebyshev.wet.value = v; } },
-  chebyOrder:   { apply: (eng, v) => { eng.fx.chebyshev.order = v; } },
+  gritDrive: {
+    apply: (eng, v) => {
+      eng.fx.chebyshev.wet.value = v;
+    },
+  },
+  chebyOrder: {
+    apply: (eng, v) => {
+      eng.fx.chebyshev.order = v;
+    },
+  },
   // Tape
-  eqHigh:       { apply: (eng, v) => { eng.fx.eq3.high.value = v; } },
-  eqMid:        { apply: (eng, v) => { eng.fx.eq3.mid.value = v; } },
-  eqLow:        { apply: (eng, v) => { eng.fx.eq3.low.value = v; } },
+  eqHigh: {
+    apply: (eng, v) => {
+      eng.fx.eq3.high.value = v;
+    },
+  },
+  eqMid: {
+    apply: (eng, v) => {
+      eng.fx.eq3.mid.value = v;
+    },
+  },
+  eqLow: {
+    apply: (eng, v) => {
+      eng.fx.eq3.low.value = v;
+    },
+  },
   // Wobble
-  wobbleRate:   { apply: (eng, v) => { eng.fx.vibrato.frequency.value = v; } },
-  wobbleDepth:  { apply: (eng, v) => { eng.fx.vibrato.depth.value = v; } },
-  wobbleMix:    { apply: (eng, v) => { eng.fx.vibrato.wet.value = v; } },
-  // Echo
-  echoTime:     { apply: (eng, v) => { eng.fx.feedbackDelay.delayTime.value = v; } },
-  echoFeedback: { apply: (eng, v) => { eng.fx.feedbackDelay.feedback.value = v; } },
-  echoMix:      { apply: (eng, v) => { eng.fx.feedbackDelay.wet.value = v; } },
+  wobbleRate: {
+    apply: (eng, v) => {
+      eng.fx.vibrato.frequency.value = v;
+    },
+  },
+  wobbleDepth: {
+    apply: (eng, v) => {
+      eng.fx.vibrato.depth.value = v;
+    },
+  },
+  wobbleMix: {
+    apply: (eng, v) => {
+      eng.fx.vibrato.wet.value = v;
+    },
+  },
+  // Echo (all ramped — prevents Doppler artifacts + feedback runaway)
+  echoTime: {
+    apply: (eng, v) => {
+      const p = eng.fx.echoDelay.delayTime;
+      p.cancelAndHoldAtTime(Tone.now());
+      p.rampTo(v, 0.15);
+    },
+  },
+  echoFeedback: {
+    apply: (eng, v) => {
+      const p = eng.fx.echoFeedbackGain.gain;
+      p.cancelAndHoldAtTime(Tone.now());
+      p.rampTo(v, 0.08);
+    },
+  },
+  echoMix: {
+    apply: (eng, v) => {
+      const p = eng.fx.echoCrossfade.fade;
+      p.cancelAndHoldAtTime(Tone.now());
+      p.rampTo(v, 0.08);
+    },
+  },
+  echoFilterFreq: {
+    apply: (eng, v) => {
+      const p = eng.fx.echoFilter.frequency;
+      p.cancelAndHoldAtTime(Tone.now());
+      p.rampTo(v, 0.1);
+    },
+  },
   // Reverb
-  reverbRoom:   { apply: (eng, v) => { eng.fx.reverb.roomSize.value = v; } },
-  reverbDamp:   { apply: (eng, v) => { eng.fx.reverb.dampening = v; eng.fx.dampSweep.center = v; } },
-  reverbMix:    { apply: (eng, v) => { eng.fx.reverb.wet.value = v; } },
-  dampSweepRate:  { apply: (eng, v) => { eng.fx.dampSweep.rate = v; } },
-  dampSweepDepth: { apply: (eng, v) => { eng.fx.dampSweep.depth = v; } },
+  reverbRoom: {
+    apply: (eng, v) => {
+      eng.fx.reverb.roomSize.value = v;
+    },
+  },
+  reverbDamp: {
+    apply: (eng, v) => {
+      eng.fx.reverb.dampening = v;
+      eng.fx.dampSweep.center = v;
+    },
+  },
+  reverbMix: {
+    apply: (eng, v) => {
+      eng.fx.reverb.wet.value = v;
+    },
+  },
+  dampSweepRate: {
+    apply: (eng, v) => {
+      eng.fx.dampSweep.rate = v;
+    },
+  },
+  dampSweepDepth: {
+    apply: (eng, v) => {
+      eng.fx.dampSweep.depth = v;
+    },
+  },
   // Space
-  panDrift:     { apply: (eng, v) => { Object.values(eng.panLfos).forEach(l => { l.frequency.value = v; }); } },
-  panWidth:     { apply: (eng, v) => { Object.values(eng.panLfos).forEach(l => { l.amplitude.value = v; }); } },
+  panDrift: {
+    apply: (eng, v) => {
+      Object.values(eng.panLfos).forEach((l) => {
+        l.frequency.value = v;
+      });
+    },
+  },
+  panWidth: {
+    apply: (eng, v) => {
+      Object.values(eng.panLfos).forEach((l) => {
+        l.amplitude.value = v;
+      });
+    },
+  },
   // Phase
-  phaserFreq:   { apply: (eng, v) => { eng.fx.phaser.frequency.value = v; } },
-  phaserOctaves:{ apply: (eng, v) => { eng.fx.phaser.octaves = v; } },
-  phaserBase:   { apply: (eng, v) => { eng.fx.phaser.baseFrequency = v; } },
-  phaserQ:      { apply: (eng, v) => { eng.fx.phaser.Q.value = v; } },
-  phaserMix:    { apply: (eng, v) => { eng.fx.phaser.wet.value = v; } },
+  phaserFreq: {
+    apply: (eng, v) => {
+      eng.fx.phaser.frequency.value = v;
+    },
+  },
+  phaserOctaves: {
+    apply: (eng, v) => {
+      eng.fx.phaser.octaves = v;
+    },
+  },
+  phaserBase: {
+    apply: (eng, v) => {
+      eng.fx.phaser.baseFrequency = v;
+    },
+  },
+  phaserQ: {
+    apply: (eng, v) => {
+      eng.fx.phaser.Q.value = v;
+    },
+  },
+  phaserMix: {
+    apply: (eng, v) => {
+      eng.fx.phaser.wet.value = v;
+      eng.setBypass("phaser", v === 0);
+    },
+  },
+  // Chorus shimmer (post-reverb, always inline — wet=0 bypasses)
+  aetherShimmer: {
+    apply: (eng, v) => {
+      eng.fx.chorus.wet.value = v;
+    },
+  },
   // Saturate
-  satDrive:     { apply: (eng, v) => { eng.fx.distortion.distortion = v; } },
-  satMix:       { apply: (eng, v) => { eng.fx.distortion.wet.value = v; } },
+  satDrive: {
+    apply: (eng, v) => {
+      eng.fx.distortion.distortion = v;
+    },
+  },
+  satMix: {
+    apply: (eng, v) => {
+      eng.fx.distortion.wet.value = v;
+      eng.setBypass("distortion", v === 0);
+    },
+  },
 };
+
+// ─── Macro Definitions ───────────────────────────────────
+// 6 macro knobs, each 0–1 normalized. 0.5 = TUNING defaults.
+// Each macro drives multiple params via opinionated curves.
+
+// Resolve declarative curve arrays into callable functions
+const CURVE_RESOLVERS = { splitLog, splitLinear, dormantLinear, dormantLog };
+
+function resolveCurve(spec) {
+  if (typeof spec === "function") return spec;
+  const [type, ...args] = spec;
+  const fn = CURVE_RESOLVERS[type];
+  return (m) => fn(...args, m);
+}
+
+const RESOLVED_MACROS = Object.fromEntries(
+  Object.entries(MACROS).map(([key, def]) => [
+    key,
+    {
+      ...def,
+      params: Object.fromEntries(
+        Object.entries(def.params).map(([param, spec]) => [
+          param,
+          resolveCurve(spec),
+        ]),
+      ),
+    },
+  ]),
+);
+
+function computeAllParams(macroValues) {
+  const params = {};
+  for (const [macro, val] of Object.entries(macroValues)) {
+    for (const [param, fn] of Object.entries(RESOLVED_MACROS[macro].params)) {
+      params[param] = fn(val);
+    }
+  }
+  return params;
+}
 
 // ─── SVG Arc Knob Component ──────────────────────────────────
 
-function Knob({ label, value, defaultValue, min, max, format, onChange, mapToNorm, mapFromNorm }) {
+const Knob = React.memo(function Knob({
+  label,
+  value,
+  defaultValue,
+  min,
+  max,
+  format,
+  onChange,
+  mapToNorm,
+  mapFromNorm,
+}) {
   const dragRef = useRef(null);
   const size = 56;
   const cx = size / 2;
@@ -279,7 +580,7 @@ function Knob({ label, value, defaultValue, min, max, format, onChange, mapToNor
   const clampedNorm = Math.max(0, Math.min(1, norm));
   const valueAngle = startAngle + clampedNorm * sweep;
 
-  const degToRad = d => (d * Math.PI) / 180;
+  const degToRad = (d) => (d * Math.PI) / 180;
   const arcPoint = (angle) => ({
     x: cx + r * Math.cos(degToRad(angle - 90)),
     y: cy + r * Math.sin(degToRad(angle - 90)),
@@ -293,22 +594,34 @@ function Knob({ label, value, defaultValue, min, max, format, onChange, mapToNor
   };
 
   const trackPath = describeArc(startAngle, endAngle);
-  const valuePath = clampedNorm > 0.003 ? describeArc(startAngle, valueAngle) : "";
+  const valuePath =
+    clampedNorm > 0.003 ? describeArc(startAngle, valueAngle) : "";
   const pointer = arcPoint(valueAngle);
 
-  const onPointerDown = useCallback((e) => {
-    e.target.setPointerCapture(e.pointerId);
-    dragRef.current = { startY: e.clientY, startNorm: clampedNorm };
-  }, [clampedNorm]);
+  const onPointerDown = useCallback(
+    (e) => {
+      e.target.setPointerCapture(e.pointerId);
+      dragRef.current = { startY: e.clientY, startNorm: clampedNorm };
+    },
+    [clampedNorm],
+  );
 
-  const onPointerMove = useCallback((e) => {
-    if (!dragRef.current) return;
-    const sensitivity = e.shiftKey ? 0.0005 : 0.003;
-    const dy = dragRef.current.startY - e.clientY;
-    const newNorm = Math.max(0, Math.min(1, dragRef.current.startNorm + dy * sensitivity));
-    const newValue = mapFromNorm ? mapFromNorm(newNorm) : min + newNorm * (max - min);
-    onChange(newValue);
-  }, [min, max, onChange, mapFromNorm]);
+  const onPointerMove = useCallback(
+    (e) => {
+      if (!dragRef.current) return;
+      const sensitivity = e.shiftKey ? 0.0005 : 0.003;
+      const dy = dragRef.current.startY - e.clientY;
+      const newNorm = Math.max(
+        0,
+        Math.min(1, dragRef.current.startNorm + dy * sensitivity),
+      );
+      const newValue = mapFromNorm
+        ? mapFromNorm(newNorm)
+        : min + newNorm * (max - min);
+      onChange(newValue);
+    },
+    [min, max, onChange, mapFromNorm],
+  );
 
   const onPointerUp = useCallback(() => {
     dragRef.current = null;
@@ -322,22 +635,41 @@ function Knob({ label, value, defaultValue, min, max, format, onChange, mapToNor
     <div className="cel-knob">
       <span className="cel-knob-label">{label}</span>
       <svg
-        width={size} height={size}
+        width={size}
+        height={size}
         className="cel-knob-svg"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
       >
-        <path d={trackPath} fill="none" stroke="rgba(180,140,255,0.15)" strokeWidth="3" strokeLinecap="round" />
-        {valuePath && <path d={valuePath} fill="none" stroke="#9070cc" strokeWidth="3" strokeLinecap="round" />}
-        <circle cx={pointer.x} cy={pointer.y} r="4" fill="#b490e8" />
-        <circle cx={cx} cy={cy} r="6" fill="rgba(180,140,255,0.08)" stroke="rgba(180,140,255,0.2)" strokeWidth="1" />
+        <path
+          d={trackPath}
+          fill="none"
+          stroke="rgba(180,140,255,0.15)"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+        {valuePath && <path d={valuePath} className="cel-knob-value-arc" />}
+        <circle
+          cx={pointer.x}
+          cy={pointer.y}
+          r="4"
+          className="cel-knob-pointer"
+        />
+        <circle
+          cx={cx}
+          cy={cy}
+          r="6"
+          fill="rgba(180,140,255,0.08)"
+          stroke="rgba(180,140,255,0.2)"
+          strokeWidth="1"
+        />
       </svg>
       <span className="cel-knob-value">{format ? format(value) : value}</span>
     </div>
   );
-}
+});
 
 // ─── Audio Engine Factory ────────────────────────────────────
 
@@ -348,7 +680,7 @@ async function createEngine() {
       sampleRate: TUNING.sampleRate,
       lookAhead: 0.2,
       updateInterval: 0.1,
-    })
+    }),
   );
   await Tone.start();
 
@@ -370,11 +702,29 @@ async function createEngine() {
   });
   vibrato.wet.value = TUNING.vibratoWet;
 
-  const feedbackDelay = new Tone.FeedbackDelay({
+  // ─── Custom echo loop (filter + saturation in feedback path) ───
+  const echoDelay = new Tone.Delay({
     delayTime: TUNING.delayTime,
-    feedback: TUNING.delayFeedback,
+    maxDelay: 2,
   });
-  feedbackDelay.wet.value = TUNING.delayWet;
+  const echoFeedbackGain = new Tone.Gain(TUNING.delayFeedback);
+  const echoFilter = new Tone.Filter({
+    frequency: TUNING.echoFilterFreq,
+    type: "lowpass",
+    rolloff: -12,
+  });
+  const echoSat = new Tone.WaveShaper(
+    (v) => Math.tanh(v * TUNING.echoSatDrive),
+    1024,
+  );
+  const echoCrossfade = new Tone.CrossFade(TUNING.delayWet);
+  const echoInputGain = new Tone.Gain(TUNING.echoInputGain);
+
+  // Feedback loop: delay out → filter → saturator → gain → delay in
+  echoDelay.connect(echoFilter);
+  echoFilter.connect(echoSat);
+  echoSat.connect(echoFeedbackGain);
+  echoFeedbackGain.connect(echoDelay);
 
   const reverb = new Tone.Freeverb({
     roomSize: TUNING.reverbRoom,
@@ -390,24 +740,27 @@ async function createEngine() {
     depth: TUNING.dampSweepDepth,
     center: TUNING.reverbDamp,
     _phase: 0,
-    _interval: null,
+    _eventId: null,
     start() {
-      if (this._interval) clearInterval(this._interval);
-      const tickMs = 50;
-      this._interval = setInterval(() => {
+      if (this._eventId !== null) this.stop();
+      if (Tone.Transport.state !== "started") Tone.Transport.start();
+      const tickSec = 0.05;
+      this._eventId = Tone.Transport.scheduleRepeat(() => {
         if (this.depth <= 0) return;
-        this._phase += (2 * Math.PI * this.rate * tickMs) / 1000;
+        this._phase += 2 * Math.PI * this.rate * tickSec;
         if (this._phase > 2 * Math.PI) this._phase -= 2 * Math.PI;
         const mod = Math.sin(this._phase);
-        // Sweep between 200 and 8000 (log scale) around center
         const logCenter = Math.log(this.center);
         const logRange = this.depth * 2.5;
         const val = Math.exp(logCenter + mod * logRange);
         reverb.dampening = Math.max(200, Math.min(8000, val));
-      }, tickMs);
+      }, tickSec);
     },
     stop() {
-      if (this._interval) { clearInterval(this._interval); this._interval = null; }
+      if (this._eventId !== null) {
+        Tone.Transport.clear(this._eventId);
+        this._eventId = null;
+      }
     },
   };
   dampSweep.start();
@@ -428,6 +781,13 @@ async function createEngine() {
   });
   phaser.wet.value = TUNING.phaserWet;
 
+  const chorus = new Tone.Chorus({
+    frequency: 0.8,
+    delayTime: 12,
+    depth: 0.6,
+  });
+  chorus.wet.value = 0.0;
+
   const distortion = new Tone.Distortion({
     distortion: TUNING.distortion,
     oversample: "4x",
@@ -436,77 +796,66 @@ async function createEngine() {
 
   // tanh soft clip — preserves Freeverb resonant peaks that Limiter(-1) killed
   const softClip = new Tone.WaveShaper((val) => Math.tanh(val), 4096);
-  softClip.oversample = "4x";
+  softClip.oversample = "2x";
 
   // Summing bus — all panners feed here so voices intermodulate through Chebyshev
   const sumBus = new Tone.Gain(1);
 
-  // ─── CHAIN CONFIGS ─────────────────────────────────────────
-  // Uncomment ONE config block below. Comment out all others.
-  // Each config changes the FX ordering, which dramatically
-  // changes the sonic character. All use the same FX nodes —
-  // only the wiring differs.
-  //
-  // Phaser + Distortion are inline in every config. They start
-  // at wet=0 (bypassed) — turn up their Mix knobs to activate.
-  // Distortion sits after Chebyshev (stacked saturation).
-  // Phaser sits after reverb (phase-shifts the washed signal).
-  //
-  // After switching, all knobs still work (they target nodes
-  // directly, not chain position). Shadow mode also still works.
+  // ─── Chain builder ───
+  function wireChain(src, nodes, config) {
+    const { order, bypass } = config;
+    let prev = src;
+    for (const name of order) {
+      if (name === "ECHO") {
+        prev.connect(nodes.echoCrossfade.a);
+        prev.connect(nodes.echoInputGain);
+        nodes.echoInputGain.connect(nodes.echoDelay);
+        nodes.echoDelay.connect(nodes.echoCrossfade.b);
+        prev = nodes.echoCrossfade;
+      } else {
+        prev.connect(nodes[name]);
+        prev = nodes[name];
+      }
+    }
+    prev.toDestination();
 
-  // CONFIG A: "Cathedral" (default)
-  // Saturation first — harmonics feed into space effects.
-  // Chebyshev intermodulation colors everything downstream.
-  // Signal: sum → cheby → dist → eq → vibrato → delay → reverb → phaser → monEQ → clip
-  // sumBus.connect(chebyshev);
-  // chebyshev.chain(distortion, eq3, vibrato, feedbackDelay, reverb, phaser, monitorEQ, softClip);
-  // softClip.toDestination();
+    const bypassState = {};
+    const bypassable = {};
+    for (const [name, cfg] of Object.entries(bypass)) {
+      bypassState[name] = true;
+      bypassable[name] = {
+        node: nodes[name],
+        prev: nodes[cfg.after],
+        next: nodes[cfg.before],
+      };
+    }
+    return { bypassState, bypassable };
+  }
 
-  // CONFIG B: "Void"
-  // Reverb before delay — delay repeats the already-reverbed
-  // signal, creating infinite receding echoes. More diffuse.
-  // Signal: sum → cheby → dist → eq → vibrato → reverb → phaser → delay → monEQ → clip
-  // sumBus.connect(chebyshev);
-  // chebyshev.chain(distortion, eq3, vibrato, reverb, phaser, feedbackDelay, monitorEQ, softClip);
-  // softClip.toDestination();
+  const chainNodes = {
+    chebyshev, eq3, vibrato, reverb, chorus, monitorEQ, softClip,
+    phaser, distortion, echoCrossfade, echoDelay, echoInputGain,
+  };
+  const { bypassState, bypassable } = wireChain(sumBus, chainNodes, CHAINS[ACTIVE_CHAIN]);
 
-  // CONFIG C: "Furnace"
-  // Delay before saturation — clean echoes get waveshaped
-  // together with the dry signal. Progressively dirtier.
-  // Signal: sum → delay → cheby → dist → eq → vibrato → reverb → phaser → monEQ → clip
-  // sumBus.connect(feedbackDelay);
-  // feedbackDelay.chain(chebyshev, distortion, eq3, vibrato, reverb, phaser, monitorEQ, softClip);
-  // softClip.toDestination();
-
-  // CONFIG D: "Tape"
-  // Vibrato (wow/flutter) applied first — pitch drift feeds
-  // into saturation, creating time-varying harmonic content.
-  // Signal: sum → vibrato → cheby → dist → eq → delay → reverb → phaser → monEQ → clip
-  // sumBus.connect(vibrato);
-  // vibrato.chain(chebyshev, distortion, eq3, feedbackDelay, reverb, phaser, monitorEQ, softClip);
-  // softClip.toDestination();
-
-  // CONFIG F: "Evolve"
-  // Space effects BEFORE saturation — reverb/delay tails feed
-  // into Chebyshev, generating new harmonics as they decay.
-  // The spectral content evolves over time because Chebyshev's
-  // nonlinearity responds differently at different input levels.
-  // Phaser adds moving comb-filter interference before saturation,
-  // creating shifting cancellation nodes that Chebyshev turns into
-  // new partials. Maximum harmonic evolution + textural density.
-  // Signal: sum → vibrato → delay → reverb → phaser → cheby → dist → eq → monEQ → clip
-  sumBus.connect(vibrato);
-  vibrato.chain(feedbackDelay, reverb, phaser, chebyshev, distortion, eq3, monitorEQ, softClip);
-  softClip.toDestination();
-
-  // CONFIG E: "Glass"
-  // No saturation — Chebyshev + Distortion bypassed.
-  // Clean voices through EQ, vibrato, delay, reverb. Fragile.
-  // Signal: sum → eq → vibrato → delay → reverb → phaser → monEQ → clip
-  // sumBus.connect(eq3);
-  // eq3.chain(vibrato, feedbackDelay, reverb, phaser, monitorEQ, softClip);
-  // softClip.toDestination();
+  function setBypass(name, bypassed) {
+    if (bypassState[name] === bypassed) return;
+    const b = bypassable[name];
+    try {
+      if (bypassed) {
+        b.prev.disconnect(b.node);
+        b.node.disconnect(b.next);
+        b.prev.connect(b.next);
+      } else {
+        b.prev.disconnect(b.next);
+        b.prev.connect(b.node);
+        b.node.connect(b.next);
+      }
+      bypassState[name] = bypassed;
+    } catch (e) {
+      /* ignore disconnect errors during rapid toggling */
+    }
+  }
 
   // ─── Per-planet synths + panners ──────────────────────────
 
@@ -517,10 +866,14 @@ async function createEngine() {
   Object.entries(PLANETS).forEach(([name, cfg]) => {
     const panner = new Tone.Panner(cfg.panBase);
     const synth = new Tone.PolySynth(Tone.Synth, {
-      maxPolyphony: 3,
+      maxPolyphony: 2,
       voice: Tone.Synth,
       options: {
-        oscillator: { type: "fatsawtooth", count: cfg.oscCount, spread: cfg.oscSpread },
+        oscillator: {
+          type: "fatsawtooth",
+          count: cfg.oscCount,
+          spread: cfg.oscSpread,
+        },
         envelope: {
           attack: TUNING.attack,
           decay: TUNING.decay,
@@ -541,7 +894,7 @@ async function createEngine() {
   // ─── Group LFOs — one per panGroup, drift all panners in that group ──
 
   const panLfos = {};
-  ["A", "B", "C", "D"].forEach(group => {
+  ["A", "B", "C", "D"].forEach((group) => {
     const lfo = new Tone.LFO({ frequency: TUNING.panLfoFreq, min: -1, max: 1 });
     lfo.amplitude.value = TUNING.panLfoAmplitude;
     lfo.start();
@@ -556,13 +909,47 @@ async function createEngine() {
     panners,
     panLfos,
     spreadTracker,
-    fx: { reverb, feedbackDelay, vibrato, chebyshev, eq3, monitorEQ, phaser, distortion, dampSweep },
+    setBypass,
+    fx: {
+      reverb,
+      echoDelay,
+      echoFeedbackGain,
+      echoFilter,
+      echoSat,
+      echoCrossfade,
+      echoInputGain,
+      chorus,
+      vibrato,
+      chebyshev,
+      eq3,
+      monitorEQ,
+      phaser,
+      distortion,
+      dampSweep,
+    },
     dispose() {
       dampSweep.stop();
-      Object.values(synths).forEach(s => s.dispose());
-      Object.values(panners).forEach(p => p.dispose());
-      Object.values(panLfos).forEach(l => l.dispose());
-      [sumBus, chebyshev, distortion, eq3, vibrato, feedbackDelay, reverb, phaser, monitorEQ, softClip].forEach(n => n.dispose());
+      Object.values(synths).forEach((s) => s.dispose());
+      Object.values(panners).forEach((p) => p.dispose());
+      Object.values(panLfos).forEach((l) => l.dispose());
+      [
+        sumBus,
+        chebyshev,
+        distortion,
+        eq3,
+        vibrato,
+        echoDelay,
+        echoFeedbackGain,
+        echoFilter,
+        echoSat,
+        echoCrossfade,
+        echoInputGain,
+        chorus,
+        reverb,
+        phaser,
+        monitorEQ,
+        softClip,
+      ].forEach((n) => n.dispose());
     },
   };
 }
@@ -577,57 +964,274 @@ export default function App() {
   const [oscIndex, setOscIndex] = useState(0);
   const [listenPreset, setListenPreset] = useState("headphones");
   const shadowIntervalsRef = useRef([]);
+  const visualStateRef = useRef({});
+  const keyRefsRef = useRef({});
+  const rootRef = useRef(null);
+  const emanationRef = useRef(null);
+  const shadowRef = useRef(false);
+  const macrosRef = useRef(null);
+  const pendingOscTypeRef = useRef(null);
+  const canvasCtxRef = useRef(null);
+  const rafIdRef = useRef(null);
+  const lastFrameTimeRef = useRef(null);
+  const keyPositionsRef = useRef({});
+  const startLoopRef = useRef(null);
+  const lastGlowRef = useRef({});
+  const lastAccentRef = useRef(null);
+  const colorIndexRef = useRef({});
   const [natalMode, setNatalMode] = useState(false);
   const [natalDate, setNatalDate] = useState("");
   const [natalTime, setNatalTime] = useState("");
   const [natalLat, setNatalLat] = useState("");
   const [natalLng, setNatalLng] = useState("");
   const [natalNotes, setNatalNotes] = useState({});
-  const [knobs, setKnobs] = useState({
-    attack: TUNING.attack,
-    decay: TUNING.decay,
-    sustain: TUNING.sustain,
-    release: TUNING.release,
-    gritDrive: TUNING.chebyWet,
-    chebyOrder: TUNING.chebyOrder,
-    eqHigh: TUNING.eqHigh,
-    eqMid: TUNING.eqMid,
-    eqLow: TUNING.eqLow,
-    wobbleRate: TUNING.vibratoFreq,
-    wobbleDepth: TUNING.vibratoDepth,
-    wobbleMix: TUNING.vibratoWet,
-    echoTime: TUNING.delayTime,
-    echoFeedback: TUNING.delayFeedback,
-    echoMix: TUNING.delayWet,
-    reverbRoom: TUNING.reverbRoom,
-    reverbDamp: TUNING.reverbDamp,
-    reverbMix: TUNING.reverbWet,
-    panDrift: TUNING.panLfoFreq,
-    panWidth: TUNING.panLfoAmplitude,
-    phaserFreq: TUNING.phaserFreq,
-    phaserOctaves: TUNING.phaserOctaves,
-    phaserBase: TUNING.phaserBase,
-    phaserQ: TUNING.phaserQ,
-    phaserMix: TUNING.phaserWet,
-    satDrive: TUNING.distortion,
-    satMix: TUNING.distortionWet,
-    dampSweepRate: TUNING.dampSweepRate,
-    dampSweepDepth: TUNING.dampSweepDepth,
-  });
+  const [macros, setMacros] = useState(
+    Object.fromEntries(
+      Object.entries(RESOLVED_MACROS).map(([k, v]) => [k, v.default]),
+    ),
+  );
 
-  const setKnob = useCallback((key, value) => {
-    setKnobs(prev => ({ ...prev, [key]: value }));
-    const eng = engineRef.current;
-    if (eng) KNOB_MAP[key]?.apply(eng, value);
+  const setMacro = useCallback((name, value) => {
+    setMacros((prev) => {
+      const next = { ...prev, [name]: value };
+      const eng = engineRef.current;
+      if (eng) {
+        const def = RESOLVED_MACROS[name];
+        for (const [param, fn] of Object.entries(def.params)) {
+          const v = fn(value);
+          KNOB_MAP[param]?.apply(eng, v);
+        }
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
     return () => {
-      shadowIntervalsRef.current.forEach(id => clearInterval(id));
+      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
       if (engineRef.current) {
         engineRef.current.dispose();
         engineRef.current = null;
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    shadowRef.current = shadow;
+  }, [shadow]);
+  useEffect(() => {
+    macrosRef.current = macros;
+  }, [macros]);
+
+  // ─── Position cache (eliminates getBoundingClientRect in rAF) ──
+  useEffect(() => {
+    const updatePositions = () => {
+      const rootEl = rootRef.current;
+      if (!rootEl) return;
+      const rr = rootEl.getBoundingClientRect();
+      const positions = {};
+      for (const planet of KEYBOARD_ORDER) {
+        const el = keyRefsRef.current[planet];
+        if (el) {
+          const kr = el.getBoundingClientRect();
+          positions[planet] = {
+            cx: kr.left + kr.width / 2 - rr.left,
+            cy: kr.top + kr.height / 2 - rr.top,
+          };
+        }
+      }
+      keyPositionsRef.current = positions;
+      // Size canvas to match root + cache 2d context
+      const canvas = emanationRef.current;
+      if (canvas) {
+        canvas.width = rr.width;
+        canvas.height = rr.height;
+        canvasCtxRef.current = canvas.getContext("2d");
+      }
+    };
+    updatePositions();
+    const ro = new ResizeObserver(updatePositions);
+    if (rootRef.current) ro.observe(rootRef.current);
+    window.addEventListener("resize", updatePositions);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updatePositions);
+    };
+  }, []);
+
+  // ─── Visual color engine (rAF loop) ─────────────────────────
+  // Each active planet holds a fixed color (one of 4 colorful palette entries).
+  // On release, that color lerps toward #0c0c0c — light dissolves into void.
+  // Loop only runs when planets are active (idle = no rAF = saves battery).
+  useEffect(() => {
+    const [darkR, darkG, darkB] = hexToRgb(COLOR_OFF);
+
+    const tick = (now) => {
+      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = now;
+      lastFrameTimeRef.current = now;
+
+      let blendR = 0,
+        blendG = 0,
+        blendB = 0,
+        totalWeight = 0;
+      const gradients = [];
+      let hasActive = false;
+
+      for (const planet in visualStateRef.current) {
+        const vs = visualStateRef.current[planet];
+        if (!vs) continue;
+        hasActive = true;
+        if (now < vs.startTime) continue;
+        const elapsed = (now - vs.startTime) / 1000;
+        let level = vs.envelopeLevel;
+
+        switch (vs.stage) {
+          case "attack":
+            level = Math.min(1, elapsed / vs.attackTime);
+            if (level >= 1) {
+              vs.stage = "decay";
+              vs.startTime = now;
+            }
+            break;
+          case "decay": {
+            const dp = Math.min(1, elapsed / vs.decayTime);
+            level = 1 - (1 - vs.sustainLevel) * dp;
+            if (dp >= 1) vs.stage = "sustain";
+            break;
+          }
+          case "sustain":
+            level = vs.sustainLevel;
+            break;
+          case "release": {
+            const rp = Math.min(1, elapsed / vs.releaseTime);
+            level = vs.releaseStartLevel * (1 - rp);
+            if (rp >= 1) {
+              vs.stage = "idle";
+              level = 0;
+            }
+            break;
+          }
+          default:
+            level = 0;
+        }
+        vs.envelopeLevel = level;
+
+        const [ar, ag, ab] = vs.activeColor;
+        let r = ar,
+          g = ag,
+          b = ab;
+
+        if (vs.stage === "release" && vs.releaseStartLevel > 0.001) {
+          const rp = 1 - level / vs.releaseStartLevel;
+          r = Math.round(ar + (darkR - ar) * rp);
+          g = Math.round(ag + (darkG - ag) * rp);
+          b = Math.round(ab + (darkB - ab) * rp);
+        }
+
+        // Key glow — write only when changed (dirty flag)
+        const glowAlpha = level > 0.01 ? Math.min(level * 0.5, 0.3) : 0;
+        const el = keyRefsRef.current[planet];
+        if (el) {
+          const prevGlow = lastGlowRef.current[planet];
+          if (prevGlow !== glowAlpha) {
+            el.style.setProperty(
+              "--glow-hue",
+              glowAlpha > 0 ? `rgb(${r},${g},${b})` : "transparent",
+            );
+            el.style.setProperty("--glow-opacity", String(glowAlpha));
+            lastGlowRef.current[planet] = glowAlpha;
+          }
+        }
+
+        // Emanation — push data for canvas draw (no strings, no getBoundingClientRect)
+        const pos = keyPositionsRef.current[planet];
+        if (pos && level > 0.01) {
+          gradients.push({
+            cx: pos.cx,
+            cy: pos.cy,
+            r,
+            g,
+            b,
+            alpha: level * 0.25,
+            falloff: shadowRef.current ? 85 : 70,
+          });
+        }
+
+        if (level > 0.01) {
+          blendR += ar * level;
+          blendG += ag * level;
+          blendB += ab * level;
+          totalWeight += level;
+        }
+
+        if (vs.stage === "idle") {
+          if (el) {
+            el.style.setProperty("--glow-opacity", "0");
+            lastGlowRef.current[planet] = 0;
+          }
+          visualStateRef.current[planet] = null; // preserve V8 hidden class
+        }
+      }
+
+      // Canvas emanation — single GPU-composited draw
+      const canvas = emanationRef.current;
+      const ctx = canvasCtxRef.current;
+      if (canvas && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const gd of gradients) {
+          const radius = canvas.height * (gd.falloff / 100);
+          const grad = ctx.createRadialGradient(
+            gd.cx,
+            gd.cy,
+            0,
+            gd.cx,
+            gd.cy,
+            radius,
+          );
+          grad.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},${gd.alpha})`);
+          grad.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(gd.cx - radius, gd.cy - radius, radius * 2, radius * 2);
+        }
+      }
+
+      // Knob accent — skip write if unchanged
+      const rootEl = rootRef.current;
+      if (rootEl) {
+        let accent;
+        if (totalWeight > 0.01) {
+          accent = rgbToHex(
+            Math.round(blendR / totalWeight),
+            Math.round(blendG / totalWeight),
+            Math.round(blendB / totalWeight),
+          );
+        } else {
+          accent = KNOB_DEFAULT_COLOR;
+        }
+        if (accent !== lastAccentRef.current) {
+          rootEl.style.setProperty("--knob-accent", accent);
+          lastAccentRef.current = accent;
+        }
+      }
+
+      // Idle detection — stop rAF when nothing is active
+      if (hasActive) {
+        rafIdRef.current = requestAnimationFrame(tick);
+      } else {
+        rafIdRef.current = null;
+        lastFrameTimeRef.current = null;
+      }
+    };
+
+    const startLoop = () => {
+      if (!rafIdRef.current) rafIdRef.current = requestAnimationFrame(tick);
+    };
+    startLoopRef.current = startLoop;
+
+    return () => {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+      lastFrameTimeRef.current = null;
     };
   }, []);
 
@@ -639,47 +1243,98 @@ export default function App() {
     return engineRef.current;
   }, []);
 
-  const togglePlanet = useCallback(async (planet) => {
-    const eng = await ensureEngine();
-    const cfg = PLANETS[planet];
-    if (!cfg) return;
-    const noteClass = natalMode && natalNotes[planet] ? natalNotes[planet] : cfg.note;
-    const note = `${noteClass}${cfg.octave}`;
-    setActivePlanets(prev => {
-      const next = new Set(prev);
-      if (next.has(planet)) {
-        eng.synths[planet].triggerRelease(note, Tone.now());
-        next.delete(planet);
-      } else {
-        eng.synths[planet].triggerAttack(note, Tone.now(), cfg.vel);
-        next.add(planet);
-      }
-      setStatus(next.size > 0 ? "playing" : "ready");
-      return next;
-    });
-  }, [ensureEngine, natalMode, natalNotes]);
+  const togglePlanet = useCallback(
+    async (planet) => {
+      const eng = await ensureEngine();
+      const cfg = PLANETS[planet];
+      if (!cfg) return;
+      const noteClass =
+        natalMode && natalNotes[planet] ? natalNotes[planet] : cfg.note;
+      const note = `${noteClass}${cfg.octave}`;
+      // Derive envelope from bloom macro for visuals
+      const bloom = macrosRef.current?.bloom ?? 0.5;
+      const attack = RESOLVED_MACROS.bloom.params.attack(bloom);
+      const decay = RESOLVED_MACROS.bloom.params.decay(bloom);
+      const sustain = RESOLVED_MACROS.bloom.params.sustain(bloom);
+      const release = RESOLVED_MACROS.bloom.params.release(bloom);
+      setActivePlanets((prev) => {
+        const next = new Set(prev);
+        if (next.has(planet)) {
+          eng.synths[planet].triggerRelease(note, Tone.now());
+          next.delete(planet);
+          const vs = visualStateRef.current[planet];
+          if (vs) {
+            vs.releaseStartLevel = vs.envelopeLevel;
+            vs.stage = "release";
+            vs.startTime = performance.now();
+            vs.releaseTime = release;
+          }
+        } else {
+          // Apply pending osc type from breathe before triggering
+          if (pendingOscTypeRef.current) {
+            Object.values(eng.synths).forEach((s) => {
+              s.set({ oscillator: { type: pendingOscTypeRef.current } });
+            });
+            pendingOscTypeRef.current = null;
+          }
+          eng.synths[planet].triggerAttack(note, Tone.now(), cfg.vel);
+          next.add(planet);
+          const pal = PLANET_COLORS[planet];
+          const ci = colorIndexRef.current[planet] || 0;
+          colorIndexRef.current[planet] = (ci + 1) % 4;
+          visualStateRef.current[planet] = {
+            stage: "attack",
+            startTime: performance.now(),
+            envelopeLevel: 0,
+            attackTime: attack,
+            decayTime: decay,
+            sustainLevel: sustain,
+            releaseTime: release,
+            releaseStartLevel: 0,
+            activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
+          };
+          if (startLoopRef.current) startLoopRef.current();
+        }
+        setStatus(next.size > 0 ? "playing" : "ready");
+        return next;
+      });
+    },
+    [ensureEngine, natalMode, natalNotes],
+  );
 
   const breathe = useCallback(async () => {
     const eng = await ensureEngine();
+    const bloom = macrosRef.current?.bloom ?? 0.5;
+    const release = RESOLVED_MACROS.bloom.params.release(bloom);
     if (activePlanets.size > 0) {
-      Object.values(eng.synths).forEach(s => s.releaseAll(Tone.now()));
+      Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
+      for (const planet of activePlanets) {
+        const vs = visualStateRef.current[planet];
+        if (vs) {
+          vs.releaseStartLevel = vs.envelopeLevel;
+          vs.stage = "release";
+          vs.startTime = performance.now();
+          vs.releaseTime = release;
+        }
+      }
       setActivePlanets(new Set());
       setStatus("ready");
     }
     if (shadow) {
-      const { reverb, feedbackDelay, vibrato, chebyshev } = eng.fx;
-      const rt = TUNING.shadow.rampTime;
-      shadowIntervalsRef.current.forEach(id => clearInterval(id));
+      const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } = eng.fx;
+      const rt = SHADOW.rampTime;
+      const restored = computeAllParams(macrosRef.current);
+      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
       shadowIntervalsRef.current = [];
-      reverb.wet.rampTo(knobs.reverbMix, rt);
-      feedbackDelay.feedback.rampTo(knobs.echoFeedback, rt);
-      feedbackDelay.wet.rampTo(knobs.echoMix, rt);
-      vibrato.depth.rampTo(knobs.wobbleDepth, rt);
-      vibrato.frequency.rampTo(knobs.wobbleRate, rt);
-      chebyshev.wet.rampTo(knobs.gritDrive, rt);
-      Object.values(eng.panLfos).forEach(lfo => {
-        lfo.frequency.rampTo(knobs.panDrift, rt);
-        lfo.amplitude.rampTo(knobs.panWidth, rt);
+      reverb.wet.rampTo(restored.reverbMix, rt);
+      echoFeedbackGain.gain.rampTo(restored.echoFeedback, rt);
+      echoCrossfade.fade.rampTo(restored.echoMix, rt);
+      vibrato.depth.rampTo(restored.wobbleDepth, rt);
+      vibrato.frequency.rampTo(restored.wobbleRate, rt);
+      chebyshev.wet.rampTo(restored.gritDrive, rt);
+      Object.values(eng.panLfos).forEach((lfo) => {
+        lfo.frequency.rampTo(restored.panDrift, rt);
+        lfo.amplitude.rampTo(restored.panWidth, rt);
       });
       Object.entries(eng.synths).forEach(([name, synth]) => {
         synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
@@ -688,67 +1343,79 @@ export default function App() {
       });
       setShadow(false);
     }
+    // Defer osc type change — voices may still be releasing
     const next = (oscIndex + 1) % OSC_TYPES.length;
-    const type = OSC_TYPES[next];
-    Object.values(eng.synths).forEach(s => { s.set({ oscillator: { type } }); });
+    pendingOscTypeRef.current = OSC_TYPES[next];
     setOscIndex(next);
-  }, [activePlanets, ensureEngine, oscIndex, shadow, knobs]);
+  }, [activePlanets, ensureEngine, oscIndex, shadow]);
 
   const toggleShadow = useCallback(async () => {
     const eng = await ensureEngine();
-    const { reverb, feedbackDelay, vibrato, chebyshev } = eng.fx;
-    const st = TUNING.shadow;
+    const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } = eng.fx;
+    const st = SHADOW;
 
     if (!shadow) {
       const rt = st.rampTime;
       reverb.wet.rampTo(st.reverbWet, rt);
-      feedbackDelay.feedback.rampTo(st.delayFeedback, rt);
-      feedbackDelay.wet.rampTo(st.delayWet, rt);
+      echoFeedbackGain.gain.rampTo(st.delayFeedback, rt);
+      echoCrossfade.fade.rampTo(st.delayWet, rt);
       vibrato.depth.rampTo(st.vibratoDepth, rt);
       vibrato.frequency.rampTo(st.vibratoFreq, rt);
       chebyshev.wet.rampTo(st.chebyWet, rt);
 
-      Object.values(eng.panLfos).forEach(lfo => {
+      Object.values(eng.panLfos).forEach((lfo) => {
         lfo.frequency.rampTo(st.panLfoFreq, rt);
         lfo.amplitude.rampTo(st.panLfoAmplitude, rt);
       });
 
+      // Slow spread ramp — +1 per 60ms tick (~4.8s to reach 120)
       const spreadId = setInterval(() => {
+        let allDone = true;
         Object.entries(eng.synths).forEach(([name, synth]) => {
           const current = eng.spreadTracker[name];
           if (current < st.oscSpread) {
-            const next = Math.min(current + 3, st.oscSpread);
+            allDone = false;
+            const next = Math.min(current + 1, st.oscSpread);
             eng.spreadTracker[name] = next;
             synth.set({ oscillator: { spread: next } });
           }
         });
+        if (allDone) {
+          clearInterval(spreadId);
+          shadowIntervalsRef.current = shadowIntervalsRef.current.filter(
+            (id) => id !== spreadId,
+          );
+        }
       }, 60);
 
+      // Smooth detune drift — lerp toward random targets
       const detuneId = setInterval(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
           const base = PLANETS[name]?.detuneCents || 0;
+          const current = synth.get().detune || base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
-          synth.set({ detune: target });
+          const next = current + (target - current) * 0.3;
+          synth.set({ detune: next });
         });
-      }, 800);
+      }, 1200);
 
       shadowIntervalsRef.current = [spreadId, detuneId];
     } else {
-      shadowIntervalsRef.current.forEach(id => clearInterval(id));
+      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
       shadowIntervalsRef.current = [];
 
       const rt = st.rampTime;
-      // All ramps use knob values — knobs are authoritative for non-shadow state
-      reverb.wet.rampTo(knobs.reverbMix, rt);
-      feedbackDelay.feedback.rampTo(knobs.echoFeedback, rt);
-      feedbackDelay.wet.rampTo(knobs.echoMix, rt);
-      vibrato.depth.rampTo(knobs.wobbleDepth, rt);
-      vibrato.frequency.rampTo(knobs.wobbleRate, rt);
-      chebyshev.wet.rampTo(knobs.gritDrive, rt);
+      const restored = computeAllParams(macrosRef.current);
+      reverb.wet.rampTo(restored.reverbMix, rt);
+      echoFeedbackGain.gain.rampTo(restored.echoFeedback, rt);
+      echoCrossfade.fade.rampTo(restored.echoMix, rt);
+      vibrato.depth.rampTo(restored.wobbleDepth, rt);
+      vibrato.frequency.rampTo(restored.wobbleRate, rt);
+      chebyshev.wet.rampTo(restored.gritDrive, rt);
 
-      Object.values(eng.panLfos).forEach(lfo => {
-        lfo.frequency.rampTo(knobs.panDrift, rt);
-        lfo.amplitude.rampTo(knobs.panWidth, rt);
+      Object.values(eng.panLfos).forEach((lfo) => {
+        lfo.frequency.rampTo(restored.panDrift, rt);
+        lfo.amplitude.rampTo(restored.panWidth, rt);
       });
 
       Object.entries(eng.synths).forEach(([name, synth]) => {
@@ -757,24 +1424,28 @@ export default function App() {
         eng.spreadTracker[name] = PLANETS[name].oscSpread;
       });
     }
-    setShadow(s => !s);
-  }, [shadow, knobs, ensureEngine]);
+    setShadow((s) => !s);
+  }, [shadow, ensureEngine]);
 
-  const applyListenPreset = useCallback(async (key) => {
-    const eng = await ensureEngine();
-    const preset = LISTEN_PRESETS[key];
-    if (!preset || !eng.fx.monitorEQ) return;
-    eng.fx.monitorEQ.low.value = preset.low;
-    eng.fx.monitorEQ.mid.value = preset.mid;
-    eng.fx.monitorEQ.high.value = preset.high;
-    setListenPreset(key);
-  }, [ensureEngine]);
+  const applyListenPreset = useCallback(
+    async (key) => {
+      const eng = await ensureEngine();
+      const preset = LISTEN_PRESETS[key];
+      if (!preset || !eng.fx.monitorEQ) return;
+      eng.fx.monitorEQ.low.value = preset.low;
+      eng.fx.monitorEQ.mid.value = preset.mid;
+      eng.fx.monitorEQ.high.value = preset.high;
+      setListenPreset(key);
+    },
+    [ensureEngine],
+  );
 
   const computeNatalChart = useCallback(() => {
     if (!natalDate) return;
 
     const [year, month, day] = natalDate.split("-").map(Number);
-    let hour = 12, minute = 0;
+    let hour = 12,
+      minute = 0;
     if (natalTime) {
       [hour, minute] = natalTime.split(":").map(Number);
     }
@@ -783,9 +1454,13 @@ export default function App() {
     const longitude = parseFloat(natalLng) || 0;
 
     const origin = new Origin({
-      year, month: month - 1, date: day,
-      hour, minute,
-      latitude, longitude,
+      year,
+      month: month - 1,
+      date: day,
+      hour,
+      minute,
+      latitude,
+      longitude,
     });
 
     const chart = new Horoscope({
@@ -800,9 +1475,17 @@ export default function App() {
 
     const notes = {};
     const bodyMap = {
-      Sun: "sun", Moon: "moon", Mercury: "mercury", Venus: "venus",
-      Mars: "mars", Jupiter: "jupiter", Saturn: "saturn",
-      Uranus: "uranus", Neptune: "neptune", Pluto: "pluto", Chiron: "chiron",
+      Sun: "sun",
+      Moon: "moon",
+      Mercury: "mercury",
+      Venus: "venus",
+      Mars: "mars",
+      Jupiter: "jupiter",
+      Saturn: "saturn",
+      Uranus: "uranus",
+      Neptune: "neptune",
+      Pluto: "pluto",
+      Chiron: "chiron",
     };
 
     Object.entries(bodyMap).forEach(([planet, bodyKey]) => {
@@ -814,7 +1497,8 @@ export default function App() {
 
     // Ascendant only valid with birth time
     if (natalTime && chart.Ascendant && chart.Ascendant.Sign) {
-      notes.Ascendant = ZODIAC_NOTES[chart.Ascendant.Sign.label.toLowerCase()] || null;
+      notes.Ascendant =
+        ZODIAC_NOTES[chart.Ascendant.Sign.label.toLowerCase()] || null;
     } else {
       notes.Ascendant = null;
     }
@@ -827,9 +1511,23 @@ export default function App() {
     if (!natalMode) return;
     const eng = await ensureEngine();
 
-    Object.values(eng.synths).forEach(s => s.releaseAll(Tone.now()));
+    Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
 
     setTimeout(() => {
+      // Apply pending osc type from breathe before triggering
+      if (pendingOscTypeRef.current) {
+        Object.values(eng.synths).forEach((s) => {
+          s.set({ oscillator: { type: pendingOscTypeRef.current } });
+        });
+        pendingOscTypeRef.current = null;
+      }
+
+      const bloom = macrosRef.current?.bloom ?? 0.5;
+      const attack = RESOLVED_MACROS.bloom.params.attack(bloom);
+      const decay = RESOLVED_MACROS.bloom.params.decay(bloom);
+      const sustain = RESOLVED_MACROS.bloom.params.sustain(bloom);
+      const release = RESOLVED_MACROS.bloom.params.release(bloom);
+
       const now = Tone.now();
       const next = new Set();
 
@@ -837,96 +1535,101 @@ export default function App() {
         const noteClass = natalNotes[planet];
         if (!noteClass) return;
         const note = `${noteClass}${cfg.octave}`;
-        eng.synths[planet].triggerAttack(note, now + i * TUNING.stagger, cfg.vel);
+        eng.synths[planet].triggerAttack(
+          note,
+          now + i * TUNING.stagger,
+          cfg.vel,
+        );
         next.add(planet);
+        const pal = PLANET_COLORS[planet];
+        const ci = colorIndexRef.current[planet] || 0;
+        colorIndexRef.current[planet] = (ci + 1) % 4;
+        const perfNow = performance.now();
+        visualStateRef.current[planet] = {
+          stage: "attack",
+          startTime: perfNow + i * TUNING.stagger * 1000,
+          envelopeLevel: 0,
+          attackTime: attack,
+          decayTime: decay,
+          sustainLevel: sustain,
+          releaseTime: release,
+          releaseStartLevel: 0,
+          activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
+        };
       });
 
       setActivePlanets(next);
       setStatus("playing");
+      if (startLoopRef.current) startLoopRef.current();
     }, TUNING.retriggerGap);
   }, [natalMode, natalNotes, ensureEngine]);
-
-  // Shared scale instances
-  const logAttack = logScale(0.01, 8);
-  const logDecay = logScale(0.1, 8);
-  const logRelease = logScale(0.1, 10);
-  const logWobbleRate = logScale(0.01, 2);
-  const logEchoTime = logScale(0.05, 1.5);
-  const logReverbDamp = logScale(200, 8000);
-  const logPanDrift = logScale(0.01, 0.5);
-  const linSustain = linearScale(0, 1);
-  const linDrive = linearScale(0, 1);
-  const linEqHigh = linearScale(-24, 12);
-  const linEqMid = linearScale(-12, 12);
-  const linEqLow = linearScale(-12, 12);
-  const linWobbleDepth = linearScale(0, 1);
-  const linWobbleMix = linearScale(0, 1);
-  const linEchoFb = linearScale(0, 0.95);
-  const linEchoMix = linearScale(0, 1);
-  const linReverbRoom = linearScale(0.3, 1.0);
-  const linReverbMix = linearScale(0, 1);
-  const linPanWidth = linearScale(0, 1);
-  const logPhaserFreq = logScale(0.05, 8);
-  const linPhaserOct = linearScale(1, 6);
-  const logPhaserBase = logScale(100, 4000);
-  const linPhaserMix = linearScale(0, 1);
-  const linSatDrive = linearScale(0, 1);
-  const linSatMix = linearScale(0, 1);
-  const logDampSweepRate = logScale(0.01, 1);
-  const linDampSweepDepth = linearScale(0, 1);
-
-  // Chebyshev order: odd only 1–11
-  const chebyFromNorm = n => {
-    const idx = Math.round(n * 5);
-    return 1 + idx * 2; // 1,3,5,7,9,11
-  };
-  const chebyToNorm = v => ((v - 1) / 2) / 5;
 
   return (
     <>
       <style>{CSS}</style>
-      <div className="cel-root">
-          <p className="cel-matrix">.</p>
-          <p className="cel-matrix">. .</p>
-          <p className="cel-matrix">. . .</p>
-       <p className="cel-sub">. . . s p a c e d o u t . . .</p>
+      <div
+        className={`cel-root${shadow ? " cel-eclipse-active" : ""}`}
+        ref={rootRef}
+      >
+        <canvas className="cel-emanation" ref={emanationRef} />
+        <div className="cel-oracle">
+          <p>.</p>
+          <p>. .</p>
+          <p>. . .</p>
+          <p>. .&nbsp; l o o k &nbsp;. .</p>
+          <p>. . . &nbsp;w i t h i n&nbsp; . . .</p>
+        </div>
         <div className="cel-keyboard">
-          {KEYBOARD_ORDER.filter((_, i) => !SHARP_INDICES.has(i)).map(planet => {
-            const cfg = PLANETS[planet];
-            const active = activePlanets.has(planet);
-            const isUncertain = planet === "Ascendant" && natalMode && !natalTime;
-            return (
-              <button
-                key={planet}
-                type="button"
-                className={`cel-key cel-key-natural${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
-                onClick={() => togglePlanet(planet)}
-              >
-                <span className="cel-key-glyph">{cfg.glyph}</span>
-                <span className="cel-key-name">{planet}</span>
-                <span className="cel-key-note">
-                  {natalMode && natalNotes[planet] ? natalNotes[planet] : `${cfg.note}${cfg.octave}`}
-                </span>
-              </button>
-            );
-          })}
-          {KEYBOARD_ORDER.filter((_, i) => SHARP_INDICES.has(i)).map((planet, i) => {
-            const cfg = PLANETS[planet];
-            const active = activePlanets.has(planet);
-            const isUncertain = planet === "Ascendant" && natalMode && !natalTime;
-            return (
-              <button
-                key={planet}
-                type="button"
-                className={`cel-key cel-key-sharp${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
-                style={{ left: SHARP_POSITIONS[i] }}
-                onClick={() => togglePlanet(planet)}
-              >
-                <span className="cel-key-glyph">{cfg.glyph}</span>
-                <span className="cel-key-name">{planet}</span>
-              </button>
-            );
-          })}
+          {KEYBOARD_ORDER.filter((_, i) => !SHARP_INDICES.has(i)).map(
+            (planet) => {
+              const cfg = PLANETS[planet];
+              const active = activePlanets.has(planet);
+              const isUncertain =
+                planet === "Ascendant" && natalMode && !natalTime;
+              return (
+                <button
+                  key={planet}
+                  type="button"
+                  ref={(el) => {
+                    keyRefsRef.current[planet] = el;
+                  }}
+                  className={`cel-key cel-key-natural${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
+                  onClick={() => togglePlanet(planet)}
+                >
+                  <span className="cel-key-glyph">{cfg.glyph}</span>
+                  <span className="cel-key-name">{planet}</span>
+                  <span className="cel-key-note">
+                    {natalMode && natalNotes[planet]
+                      ? natalNotes[planet]
+                      : `${cfg.note}${cfg.octave}`}
+                  </span>
+                </button>
+              );
+            },
+          )}
+          {KEYBOARD_ORDER.filter((_, i) => SHARP_INDICES.has(i)).map(
+            (planet, i) => {
+              const cfg = PLANETS[planet];
+              const active = activePlanets.has(planet);
+              const isUncertain =
+                planet === "Ascendant" && natalMode && !natalTime;
+              return (
+                <button
+                  key={planet}
+                  type="button"
+                  ref={(el) => {
+                    keyRefsRef.current[planet] = el;
+                  }}
+                  className={`cel-key cel-key-sharp${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
+                  style={{ left: SHARP_POSITIONS[i] }}
+                  onClick={() => togglePlanet(planet)}
+                >
+                  <span className="cel-key-glyph">{cfg.glyph}</span>
+                  <span className="cel-key-name">{planet}</span>
+                </button>
+              );
+            },
+          )}
         </div>
 
         <div className="cel-controls">
@@ -960,210 +1663,31 @@ export default function App() {
           ))}
         </div>
 
-        <details className="cel-within">
-          <summary className="cel-within-summary">. . . w i t h i n . . .</summary>
-        <div className="cel-knobs-all">
-          <p className="cel-matrix">. . .</p>
-          <p className="cel-matrix">. .</p>
-          <p className="cel-matrix">.</p>
-          <h1 className="cel-title">selezdial selekta</h1>
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Voice</span>
-            <div className="cel-knob-row">
-              <Knob label="Attack" value={knobs.attack} defaultValue={TUNING.attack}
-                min={0.01} max={8} format={v => `${v.toFixed(1)}s`}
-                {...logAttack} onChange={v => setKnob("attack", v)} />
-              <Knob label="Decay" value={knobs.decay} defaultValue={TUNING.decay}
-                min={0.1} max={8} format={v => `${v.toFixed(1)}s`}
-                {...logDecay} onChange={v => setKnob("decay", v)} />
-              <Knob label="Sustain" value={knobs.sustain} defaultValue={TUNING.sustain}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linSustain} onChange={v => setKnob("sustain", v)} />
-              <Knob label="Release" value={knobs.release} defaultValue={TUNING.release}
-                min={0.1} max={10} format={v => `${v.toFixed(1)}s`}
-                {...logRelease} onChange={v => setKnob("release", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Grit</span>
-            <div className="cel-knob-row">
-              <Knob label="Drive" value={knobs.gritDrive} defaultValue={TUNING.chebyWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linDrive} onChange={v => setKnob("gritDrive", v)} />
-              <Knob label="Order" value={knobs.chebyOrder} defaultValue={TUNING.chebyOrder}
-                min={1} max={11} format={v => `${v}${v === 1 ? "st" : v === 3 ? "rd" : "th"}`}
-                mapFromNorm={chebyFromNorm} mapToNorm={chebyToNorm}
-                onChange={v => setKnob("chebyOrder", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Tape</span>
-            <div className="cel-knob-row">
-              <Knob label="High" value={knobs.eqHigh} defaultValue={TUNING.eqHigh}
-                min={-24} max={12} format={v => `${v > 0 ? "+" : ""}${Math.round(v)}dB`}
-                {...linEqHigh} onChange={v => setKnob("eqHigh", v)} />
-              <Knob label="Mid" value={knobs.eqMid} defaultValue={TUNING.eqMid}
-                min={-12} max={12} format={v => `${v > 0 ? "+" : ""}${Math.round(v)}dB`}
-                {...linEqMid} onChange={v => setKnob("eqMid", v)} />
-              <Knob label="Low" value={knobs.eqLow} defaultValue={TUNING.eqLow}
-                min={-12} max={12} format={v => `${v > 0 ? "+" : ""}${Math.round(v)}dB`}
-                {...linEqLow} onChange={v => setKnob("eqLow", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Wobble</span>
-            <div className="cel-knob-row">
-              <Knob label="Rate" value={knobs.wobbleRate} defaultValue={TUNING.vibratoFreq}
-                min={0.01} max={2} format={v => `${v.toFixed(2)}Hz`}
-                {...logWobbleRate} onChange={v => setKnob("wobbleRate", v)} />
-              <Knob label="Depth" value={knobs.wobbleDepth} defaultValue={TUNING.vibratoDepth}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linWobbleDepth} onChange={v => setKnob("wobbleDepth", v)} />
-              <Knob label="Mix" value={knobs.wobbleMix} defaultValue={TUNING.vibratoWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linWobbleMix} onChange={v => setKnob("wobbleMix", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Echo</span>
-            <div className="cel-knob-row">
-              <Knob label="Time" value={knobs.echoTime} defaultValue={TUNING.delayTime}
-                min={0.05} max={1.5} format={v => `${v.toFixed(2)}s`}
-                {...logEchoTime} onChange={v => setKnob("echoTime", v)} />
-              <Knob label="Feedback" value={knobs.echoFeedback} defaultValue={TUNING.delayFeedback}
-                min={0} max={0.95} format={v => v.toFixed(2)}
-                {...linEchoFb} onChange={v => setKnob("echoFeedback", v)} />
-              <Knob label="Mix" value={knobs.echoMix} defaultValue={TUNING.delayWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linEchoMix} onChange={v => setKnob("echoMix", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Reverb</span>
-            <div className="cel-knob-row">
-              <Knob label="Room" value={knobs.reverbRoom} defaultValue={TUNING.reverbRoom}
-                min={0.3} max={1.0} format={v => v.toFixed(2)}
-                {...linReverbRoom} onChange={v => setKnob("reverbRoom", v)} />
-              <Knob label="Damp" value={knobs.reverbDamp} defaultValue={TUNING.reverbDamp}
-                min={200} max={8000} format={v => `${Math.round(v)}Hz`}
-                {...logReverbDamp} onChange={v => setKnob("reverbDamp", v)} />
-              <Knob label="Mix" value={knobs.reverbMix} defaultValue={TUNING.reverbWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linReverbMix} onChange={v => setKnob("reverbMix", v)} />
-              <Knob label="Sweep" value={knobs.dampSweepDepth} defaultValue={TUNING.dampSweepDepth}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linDampSweepDepth} onChange={v => setKnob("dampSweepDepth", v)} />
-              <Knob label="S.Rate" value={knobs.dampSweepRate} defaultValue={TUNING.dampSweepRate}
-                min={0.01} max={1} format={v => `${v.toFixed(2)}Hz`}
-                {...logDampSweepRate} onChange={v => setKnob("dampSweepRate", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Space</span>
-            <div className="cel-knob-row">
-              <Knob label="Drift" value={knobs.panDrift} defaultValue={TUNING.panLfoFreq}
-                min={0.01} max={0.5} format={v => `${v.toFixed(2)}Hz`}
-                {...logPanDrift} onChange={v => setKnob("panDrift", v)} />
-              <Knob label="Width" value={knobs.panWidth} defaultValue={TUNING.panLfoAmplitude}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linPanWidth} onChange={v => setKnob("panWidth", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Phase</span>
-            <div className="cel-knob-row">
-              <Knob label="Rate" value={knobs.phaserFreq} defaultValue={TUNING.phaserFreq}
-                min={0.05} max={8} format={v => `${v.toFixed(2)}Hz`}
-                {...logPhaserFreq} onChange={v => setKnob("phaserFreq", v)} />
-              <Knob label="Octaves" value={knobs.phaserOctaves} defaultValue={TUNING.phaserOctaves}
-                min={1} max={6} format={v => Math.round(v)}
-                {...linPhaserOct} onChange={v => setKnob("phaserOctaves", Math.round(v))} />
-              <Knob label="Base" value={knobs.phaserBase} defaultValue={TUNING.phaserBase}
-                min={100} max={4000} format={v => `${Math.round(v)}Hz`}
-                {...logPhaserBase} onChange={v => setKnob("phaserBase", v)} />
-              <Knob label="Mix" value={knobs.phaserMix} defaultValue={TUNING.phaserWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linPhaserMix} onChange={v => setKnob("phaserMix", v)} />
-            </div>
-          </div>
-
-          <div className="cel-knob-section">
-            <span className="cel-section-label">Saturate</span>
-            <div className="cel-knob-row">
-              <Knob label="Drive" value={knobs.satDrive} defaultValue={TUNING.distortion}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linSatDrive} onChange={v => setKnob("satDrive", v)} />
-              <Knob label="Mix" value={knobs.satMix} defaultValue={TUNING.distortionWet}
-                min={0} max={1} format={v => v.toFixed(2)}
-                {...linSatMix} onChange={v => setKnob("satMix", v)} />
-            </div>
-          </div>
+        <div className="cel-macros">
+          {Object.entries(RESOLVED_MACROS).map(([key, def]) => (
+            <Knob
+              key={key}
+              label={def.label}
+              value={macros[key]}
+              defaultValue={def.default}
+              min={0}
+              max={1}
+              format={(v) => v.toFixed(2)}
+              onChange={(v) => setMacro(key, v)}
+            />
+          ))}
         </div>
 
+        {/* Natal Chart — hidden until Lionel provides mapping data
         <details className="cel-natal">
           <summary className="cel-natal-summary">Natal Chart</summary>
-          <div className="cel-natal-body">
-            <div className="cel-natal-inputs">
-              <input
-                type="date"
-                value={natalDate}
-                onChange={e => setNatalDate(e.target.value)}
-                className="cel-natal-input"
-              />
-              <input
-                type="time"
-                value={natalTime}
-                onChange={e => setNatalTime(e.target.value)}
-                className="cel-natal-input"
-                placeholder="Birth time (optional)"
-              />
-              <input
-                type="number"
-                value={natalLat}
-                onChange={e => setNatalLat(e.target.value)}
-                className="cel-natal-input"
-                placeholder="Latitude"
-                step="0.01"
-              />
-              <input
-                type="number"
-                value={natalLng}
-                onChange={e => setNatalLng(e.target.value)}
-                className="cel-natal-input"
-                placeholder="Longitude"
-                step="0.01"
-              />
-            </div>
-            <div className="cel-natal-actions">
-              <button type="button" className="cel-btn cel-natal-compute" onClick={computeNatalChart}>
-                Compute Chart
-              </button>
-              <button type="button" className="cel-btn cel-natal-play" onClick={playNatalChart} disabled={!natalMode}>
-                Play Chart
-              </button>
-            </div>
-          </div>
+          ...
         </details>
-        </details>
-
-        <div className="cel-info">
-          <p>Tap planets to build your chord. Each voice has its own stereo position.</p>
-          <p className="cel-chain">
-            Fat saw &rarr; Panner &rarr; Sum bus &rarr; Saturation &rarr; Tape EQ
-            <br />
-            &rarr; VHS wow &rarr; Delay &rarr; Algorithmic reverb &rarr; Monitor EQ &rarr; Soft clip
-          </p>
-        </div>
+        */}
 
         <div className="cel-footer">
-          <p>v9 &middot; 12&times;3 voices &middot; 24kHz &middot; Full control</p>
+          <p>v11 &middot; 12&times;2 voices &middot; 16kHz &middot; 6 macros</p>
+          <h1 className="cel-title">celezdial selekta</h1>
         </div>
       </div>
     </>
@@ -1242,13 +1766,14 @@ const CSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #08080f;
+    background: #0c0c0c;
     overflow-x: hidden;
   }
 
   .cel-root {
+    position: relative;
     min-height: 100vh;
-    background: linear-gradient(170deg, #0a0a1a 0%, #15082e 40%, #0d0d20 100%);
+    background: #0c0c0c;
     color: #d8d0e8;
     font-family: ${FONTS.body};
     display: flex;
@@ -1257,17 +1782,31 @@ const CSS = `
     padding: 2.5rem 1rem;
     user-select: none;
     -webkit-user-select: none;
+    isolation: isolate;
   }
 
+  .cel-emanation {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    contain: strict;
+  }
+
+  /* ── Title + Oracle ────────────────────────────────── */
+
   .cel-title {
-    font-family: ${FONTS["title"]};
-    font-size: 2.8rem;
+    font-family: ${FONTS.title};
+    font-size: 2.4rem;
     font-weight: 400;
     letter-spacing: 0.15em;
     color: #f0e8ff;
     text-shadow: 0 0 30px rgba(180, 140, 255, 0.3);
     animation: cel-glow 6s ease-in-out infinite;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.4rem;
     text-align: center;
   }
 
@@ -1276,20 +1815,17 @@ const CSS = `
     50% { text-shadow: 0 0 50px rgba(180, 140, 255, 0.5), 0 0 80px rgba(140, 100, 220, 0.2); }
   }
 
-  .cel-matrix {
-    color: #8878a0;
-    margin: 0;
+  .cel-oracle {
     text-align: center;
-    line-height: 0.6;
-    font-size: 0.3rem;
+    color: #706888;
+    font-size: 0.75rem;
+    letter-spacing: 0.35em;
+    line-height: 1.3;
+    margin-bottom: 1.8rem;
   }
 
-  .cel-sub {
-    font-size: 0.85rem;
-    color: #8878a0;
-    letter-spacing: 0.08em;
-    margin-bottom: 2rem;
-    text-align: center;
+  .cel-oracle p {
+    margin: 0;
   }
 
   /* ── Piano keyboard layout ──────────────────────────── */
@@ -1302,6 +1838,7 @@ const CSS = `
     width: 100%;
     height: 160px;
     margin-bottom: 1.2rem;
+    overflow: visible;
   }
 
   .cel-key {
@@ -1313,10 +1850,24 @@ const CSS = `
     justify-content: flex-end;
     gap: 0.15rem;
     color: #d8d0e8;
-    transition: all 0.25s ease;
+    transition: background 0.25s ease, border-color 0.25s ease;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     padding-bottom: 0.6rem;
+    position: relative;
+    contain: layout style;
+  }
+
+  .cel-key::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 16px currentColor;
+    opacity: var(--glow-opacity, 0);
+    color: var(--glow-hue, transparent);
+    pointer-events: none;
+    will-change: opacity;
   }
 
   .cel-key:active {
@@ -1324,16 +1875,17 @@ const CSS = `
   }
 
   .cel-key-natural {
+    position: relative;
     flex: 1;
     height: 100%;
-    background: rgba(255, 255, 255, 0.04);
+    background: #161616;
     border: 1px solid rgba(180, 140, 255, 0.12);
     border-radius: 0 0 8px 8px;
     z-index: 1;
   }
 
   .cel-key-natural:hover {
-    background: rgba(180, 140, 255, 0.08);
+    background: #19162f;
     border-color: rgba(180, 140, 255, 0.3);
   }
 
@@ -1342,7 +1894,7 @@ const CSS = `
     top: 0;
     width: 9%;
     height: 58%;
-    background: rgba(30, 15, 60, 0.9);
+    background: #1d0f38;
     border: 1px solid rgba(180, 140, 255, 0.25);
     border-radius: 0 0 6px 6px;
     z-index: 2;
@@ -1350,29 +1902,27 @@ const CSS = `
   }
 
   .cel-key-sharp:hover {
-    background: rgba(50, 25, 80, 0.9);
+    background: #301a4e;
     border-color: rgba(180, 140, 255, 0.45);
   }
 
   .cel-key-active.cel-key-natural {
-    background: rgba(180, 140, 255, 0.14);
+    background: #221a3a;
     border-color: rgba(180, 140, 255, 0.55);
-    box-shadow: 0 0 16px rgba(140, 100, 220, 0.3), inset 0 0 12px rgba(180, 140, 255, 0.06);
   }
 
   .cel-key-active.cel-key-natural:hover {
-    background: rgba(180, 140, 255, 0.2);
+    background: #2c2046;
     border-color: rgba(180, 140, 255, 0.65);
   }
 
   .cel-key-active.cel-key-sharp {
-    background: rgba(80, 40, 140, 0.9);
+    background: #4e288a;
     border-color: rgba(200, 160, 255, 0.6);
-    box-shadow: 0 0 12px rgba(140, 100, 220, 0.4), inset 0 0 8px rgba(180, 140, 255, 0.1);
   }
 
   .cel-key-active.cel-key-sharp:hover {
-    background: rgba(100, 50, 160, 0.9);
+    background: #6032a0;
     border-color: rgba(200, 160, 255, 0.7);
   }
 
@@ -1411,6 +1961,12 @@ const CSS = `
 
   .cel-key-uncertain {
     opacity: 0.4;
+  }
+
+  /* ── Eclipse mode ─────────────────────────────────────── */
+
+  .cel-eclipse-active .cel-key::before {
+    box-shadow: 0 0 20px currentColor, 0 0 40px currentColor;
   }
 
   /* ── Controls row (Shadow + Breathe) ────────────────── */
@@ -1514,6 +2070,7 @@ const CSS = `
   .cel-breathe-btn {
     border-color: rgba(255, 180, 140, 0.15);
     padding: 0.6rem 2rem;
+    justify-content: center;
   }
 
   .cel-breathe-btn:hover:not(:disabled) {
@@ -1555,63 +2112,16 @@ const CSS = `
     color: #e0c8ff;
   }
 
-  /* ── within (collapsible knob panel) ──────────────── */
+  /* ── Macro Knobs ───────────────────────────────────── */
 
-  .cel-within {
-    max-width: 440px;
-    width: 100%;
-    margin-bottom: 1.5rem;
-  }
-
-  .cel-within-summary {
-    cursor: pointer;
-    color: #8878a0;
-    font-size: 0.85rem;
-    text-align: center;
-    padding: 0.5rem;
-    letter-spacing: 0.15em;
-    list-style: none;
-    transition: color 0.3s ease;
-  }
-
-  .cel-within-summary::-webkit-details-marker { display: none; }
-
-  .cel-within-summary:hover {
-    color: #c4a0ff;
-  }
-
-  .cel-within[open] .cel-within-summary {
-    color: #b490e8;
-    margin-bottom: 0.5rem;
-  }
-
-  /* ── SVG Knobs ───────────────────────────────────────── */
-
-  .cel-knobs-all {
-    max-width: 440px;
-    width: 100%;
-    margin-bottom: 1.5rem;
-  }
-
-  .cel-knob-section {
-    margin-bottom: 1rem;
-  }
-
-  .cel-section-label {
-    display: block;
-    text-align: center;
-    font-size: 0.6rem;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #504868;
-    margin-bottom: 0.3rem;
-  }
-
-  .cel-knob-row {
+  .cel-macros {
     display: flex;
-    gap: 0.6rem;
+    gap: 1rem;
     justify-content: center;
+    max-width: 480px;
+    width: 100%;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
   }
 
   .cel-knob {
@@ -1634,6 +2144,19 @@ const CSS = `
   .cel-knob-svg {
     cursor: ns-resize;
     touch-action: none;
+  }
+
+  .cel-knob-value-arc {
+    fill: none;
+    stroke: var(--knob-accent, #9070cc);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke 0.4s ease-out;
+  }
+
+  .cel-knob-pointer {
+    fill: var(--knob-accent, #b490e8);
+    transition: fill 0.4s ease-out;
   }
 
   .cel-knob-value {
