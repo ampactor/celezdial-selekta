@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// CELESTIAL PAD v6 — 12-Voice Stereo Engine + Shadow v2
-// 12x [Synth → Panner] → Chebyshev → tape EQ → VHS wow
+// CELESTIAL PAD v7 — Intermodulation Restored + First Knobs
+// 12x [Synth → Panner] → sumBus → Chebyshev → tape EQ → VHS wow
 //   → delay cascade → convolution reverb → monitor EQ → limiter
 //
-// Per-planet stereo positioning with grouped LFO drift.
+// Voices sum before Chebyshev — intermodulation distortion restored.
+// Live knobs: Grit (cheby wet), Echo (delay feedback), Attack.
 // Tone.Reverb (ConvolverNode) — no AudioWorklet, works on HTTP.
-// 12 chromatic pitch classes: Db Ab G C Eb F A D E Gb Bb B
 // ═══════════════════════════════════════════════════════════════
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
@@ -33,15 +33,15 @@ const PLANETS = {
 const TUNING = {
   sampleRate: 24000,
   // Envelope (bloom)
-  attack: 2.0,
+  attack: 1.5,
   decay: 3.5,
-  sustain: 0.43,
-  release: 2.6,
+  sustain: 0.2,
+  release: 5.0,
   // Chebyshev saturation
   chebyOrder: 3,
-  chebyWet: 0.77,
+  chebyWet: 0.65,
   // Tape EQ
-  eqHigh: -12,
+  eqHigh: -24,
   eqMid: 5,
   eqLow: 5,
   eqHighFreq: 3000,
@@ -50,9 +50,9 @@ const TUNING = {
   vibratoDepth: 0.28,
   vibratoWet: 0.8,
   // Delay cascade
-  delayTime: 0.777,
-  delayFeedback: 0.58,
-  delayWet: 0.64,
+  delayTime: 0.6,
+  delayFeedback: 0.68,
+  delayWet: 0.5,
   // Convolution reverb
   reverbDecay: 6,
   reverbWet: 0.85,
@@ -93,6 +93,32 @@ const LISTEN_PRESETS = {
   phone:       { low: 4,  mid: 3,  high: 2,  label: "Phone" },
   loudspeaker: { low: 3,  mid: -2, high: 0,  label: "Speaker" },
 };
+
+// ─── Knob Mapping ────────────────────────────────────────────
+
+const KNOB_MAP = {
+  grit:   { apply: (eng, v) => { eng.fx.chebyshev.wet.value = v; } },
+  echo:   { apply: (eng, v) => { eng.fx.feedbackDelay.feedback.value = v; } },
+  attack: { apply: (eng, v) => { Object.values(eng.synths).forEach(s => { s.envelope.attack = v; }); } },
+};
+
+function Knob({ label, value, min, max, step, format, onChange }) {
+  return (
+    <div className="cel-knob">
+      <span className="cel-knob-label">{label}</span>
+      <input
+        type="range"
+        className="cel-knob-slider"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+      />
+      <span className="cel-knob-value">{format ? format(value) : value}</span>
+    </div>
+  );
+}
 
 // ─── Audio Engine Factory ────────────────────────────────────
 
@@ -145,6 +171,10 @@ async function createEngine() {
 
   const limiter = new Tone.Limiter(-1);
 
+  // Summing bus — all panners feed here so voices intermodulate through Chebyshev
+  const sumBus = new Tone.Gain(1);
+  sumBus.connect(chebyshev);
+
   chebyshev.chain(eq3, vibrato, feedbackDelay, reverb, monitorEQ, limiter);
   limiter.toDestination();
 
@@ -156,7 +186,7 @@ async function createEngine() {
   Object.entries(PLANETS).forEach(([name, cfg]) => {
     const panner = new Tone.Panner(cfg.panBase);
     const synth = new Tone.Synth({
-      oscillator: { type: "fattriangle", count: cfg.oscCount, spread: cfg.oscSpread },
+      oscillator: { type: "fatsawtooth", count: cfg.oscCount, spread: cfg.oscSpread },
       envelope: {
         attack: TUNING.attack,
         decay: TUNING.decay,
@@ -166,7 +196,7 @@ async function createEngine() {
       volume: -12,
     });
     synth.connect(panner);
-    panner.connect(chebyshev);
+    panner.connect(sumBus);
     synths[name] = synth;
     panners[name] = panner;
   });
@@ -188,12 +218,12 @@ async function createEngine() {
     synths,
     panners,
     panLfos,
-    fx: { reverb, feedbackDelay, vibrato, chebyshev, monitorEQ },
+    fx: { reverb, feedbackDelay, vibrato, chebyshev, eq3, monitorEQ },
     dispose() {
       Object.values(synths).forEach(s => s.dispose());
       Object.values(panners).forEach(p => p.dispose());
       Object.values(panLfos).forEach(l => l.dispose());
-      [chebyshev, eq3, vibrato, feedbackDelay, reverb, monitorEQ, limiter].forEach(n => n.dispose());
+      [sumBus, chebyshev, eq3, vibrato, feedbackDelay, reverb, monitorEQ, limiter].forEach(n => n.dispose());
     },
   };
 }
@@ -213,6 +243,17 @@ export default function App() {
   const [natalLat, setNatalLat] = useState("");
   const [natalLng, setNatalLng] = useState("");
   const [natalNotes, setNatalNotes] = useState({});
+  const [knobs, setKnobs] = useState({
+    grit: TUNING.chebyWet,
+    echo: TUNING.delayFeedback,
+    attack: TUNING.attack,
+  });
+
+  const setKnob = useCallback((key, value) => {
+    setKnobs(prev => ({ ...prev, [key]: value }));
+    const eng = engineRef.current;
+    if (eng) KNOB_MAP[key]?.apply(eng, value);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -301,11 +342,11 @@ export default function App() {
 
       const rt = st.rampTime;
       reverb.wet.rampTo(TUNING.reverbWet, rt);
-      feedbackDelay.feedback.rampTo(TUNING.delayFeedback, rt);
+      feedbackDelay.feedback.rampTo(knobs.echo, rt);
       feedbackDelay.wet.rampTo(TUNING.delayWet, rt);
       vibrato.depth.rampTo(TUNING.vibratoDepth, rt);
       vibrato.frequency.rampTo(TUNING.vibratoFreq, rt);
-      chebyshev.wet.rampTo(TUNING.chebyWet, rt);
+      chebyshev.wet.rampTo(knobs.grit, rt);
 
       Object.values(eng.panLfos).forEach(lfo => {
         lfo.frequency.rampTo(TUNING.panLfoFreq, rt);
@@ -318,7 +359,7 @@ export default function App() {
       });
     }
     setShadow(s => !s);
-  }, [shadow, ensureEngine]);
+  }, [shadow, knobs, ensureEngine]);
 
   const applyListenPreset = useCallback(async (key) => {
     const eng = await ensureEngine();
@@ -466,6 +507,15 @@ export default function App() {
           ))}
         </div>
 
+        <div className="cel-knobs">
+          <Knob label="Grit" value={knobs.grit} min={0} max={1} step={0.01}
+            format={v => v.toFixed(2)} onChange={v => setKnob("grit", v)} />
+          <Knob label="Echo" value={knobs.echo} min={0} max={0.95} step={0.01}
+            format={v => v.toFixed(2)} onChange={v => setKnob("echo", v)} />
+          <Knob label="Attack" value={knobs.attack} min={0.1} max={8.0} step={0.1}
+            format={v => `${v.toFixed(1)}s`} onChange={v => setKnob("attack", v)} />
+        </div>
+
         <details className="cel-natal">
           <summary className="cel-natal-summary">Natal Chart</summary>
           <div className="cel-natal-body">
@@ -514,14 +564,14 @@ export default function App() {
         <div className="cel-info">
           <p>Tap planets to build your chord. Each voice has its own stereo position.</p>
           <p className="cel-chain">
-            Fat saw &rarr; Saturation &rarr; Tape EQ &rarr; VHS wow
+            Fat saw &rarr; Panner &rarr; Sum bus &rarr; Saturation &rarr; Tape EQ
             <br />
-            &rarr; Delay &rarr; Reverb &rarr; Monitor EQ &rarr; Limiter
+            &rarr; VHS wow &rarr; Delay &rarr; Reverb &rarr; Monitor EQ &rarr; Limiter
           </p>
         </div>
 
         <div className="cel-footer">
-          <p>v6 &middot; 12 voices &middot; 24kHz &middot; Per-planet stereo</p>
+          <p>v7 &middot; 12 voices &middot; 24kHz &middot; Intermod + Knobs</p>
         </div>
       </div>
     </>
@@ -794,6 +844,77 @@ const CSS = `
     background: rgba(180, 140, 255, 0.14);
     border-color: rgba(180, 140, 255, 0.5);
     color: #e0c8ff;
+  }
+
+  /* ── Knobs ─────────────────────────────────────────────── */
+
+  .cel-knobs {
+    display: flex;
+    gap: 1.2rem;
+    justify-content: center;
+    max-width: 400px;
+    width: 100%;
+    margin-bottom: 1.5rem;
+  }
+
+  .cel-knob {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 1;
+  }
+
+  .cel-knob-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #8878a0;
+    text-transform: uppercase;
+  }
+
+  .cel-knob-value {
+    font-size: 0.65rem;
+    color: #504868;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+
+  .cel-knob-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(180, 140, 255, 0.12);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .cel-knob-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #9070cc;
+    border: 2px solid #b490e8;
+    box-shadow: 0 0 8px rgba(140, 100, 220, 0.5);
+    cursor: pointer;
+    transition: box-shadow 0.2s ease;
+  }
+
+  .cel-knob-slider::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 14px rgba(140, 100, 220, 0.8);
+  }
+
+  .cel-knob-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #9070cc;
+    border: 2px solid #b490e8;
+    box-shadow: 0 0 8px rgba(140, 100, 220, 0.5);
+    cursor: pointer;
   }
 
   /* ── Natal chart section ─────────────────────────────── */
