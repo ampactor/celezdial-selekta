@@ -1,103 +1,102 @@
 // ═══════════════════════════════════════════════════════════════
-// CELESTIAL PAD v4.5 — Cleanup + Readability Pass
-// FatOscillator unison → Chebyshev → tape EQ → VHS wow → delay cascade → cathedral reverb → stereo drift
-// Bloom envelope + fatsawtooth layer. Dbmaj9 spread voicing. Freeverb @ 24kHz.
+// CELESTIAL PAD v6 — 12-Voice Stereo Engine + Shadow v2
+// 12x [Synth → Panner] → Chebyshev → tape EQ → VHS wow
+//   → delay cascade → convolution reverb → monitor EQ → limiter
 //
-// CodeSandbox Setup:
-//   1. Create a React sandbox (https://react.new)
-//   2. Add dependency: tone
-//   3. Replace src/App.js with this file
+// Per-planet stereo positioning with grouped LFO drift.
+// Tone.Reverb (ConvolverNode) — no AudioWorklet, works on HTTP.
+// 12 chromatic pitch classes: Db Ab G C Eb F A D E Gb Bb B
 // ═══════════════════════════════════════════════════════════════
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import * as Tone from "tone";
+import { Origin, Horoscope } from "circular-natal-horoscope-js";
 
-// Voicing presets — note classes assigned to planets.
-// Voicing: Dbmaj9 spread — Kid A territory. Fully submerged.
-// Sorted: Db2 - Ab3 - Db4 - F4 - Ab4 - C5 - Eb5
-// Intervals: P5 - P4 - M3 - m3 - M3 - m3  (all safe per low interval limits)
-
-// Per-planet voicing: octave register + velocity (0-1)
-// Range: oct 2-5 (mid-heavy). Color tones above E3, root/5th only below.
+// 12 planets — each carries note class, octave, velocity, glyph,
+// fixed stereo base, pan group (for LFO), osc count, osc spread.
 const PLANETS = {
-  Sun: { octave: 4, vel: 1.0, glyph: "\u2609" }, // Db4 — root, center
-  Moon: { octave: 5, vel: 0.5, glyph: "\u263D" }, // C5  — maj7, floating
-  Mercury: { octave: 5, vel: 0.3, glyph: "\u263F" }, // Eb5 — 9th, sparkle
-  Venus: { octave: 4, vel: 1.0, glyph: "\u2640" }, // F4  — maj3, warmth
-  Mars: { octave: 3, vel: 0.8, glyph: "\u2642" }, // Ab3 — 5th, support
-  Jupiter: { octave: 2, vel: 1.0, glyph: "\u2643" }, // Db2 — root, deep anchor
-  Saturn: { octave: 4, vel: 0.5, glyph: "\u2644" }, // Ab4 — 5th, shimmer
-  Uranus: { octave: 5, vel: 0.4, glyph: "\u2645" },
-  Neptune: { octave: 5, vel: 0.2, glyph: "\u2646" },
-  Pluto: { octave: 2, vel: 0.3, glyph: "\u2647" },
-  Ascendant: { octave: 4, vel: 0.9, glyph: "AC" },
-};
-
-// Demo voicings — Dbmaj9 (Db F Ab C Eb) spread across planet octave registers
-// Single: root. Chord: Dbmaj7. Full: complete Dbmaj9 with doublings.
-const CHARTS = {
-  single: { Sun: "Db" },
-  chord: { Sun: "Db", Venus: "F", Mars: "Ab", Moon: "C" },
-  full: {
-    Sun: "Db", // oct 4 — root, center
-    Moon: "C", // oct 5 — maj7, floating
-    Mercury: "Eb", // oct 5 — 9th, sparkle
-    Venus: "F", // oct 4 — maj3, warmth
-    Mars: "Ab", // oct 3 — 5th, foundation
-    Jupiter: "Db", // oct 2 — root, deep anchor
-    Saturn: "Ab", // oct 4 — 5th, shimmer
-  },
+  Jupiter:   { octave: 2, vel: 1.0, glyph: "\u2643", note: "Db", panBase: -0.85, panGroup: "A", oscCount: 3, oscSpread: 55 },
+  Pluto:     { octave: 2, vel: 0.3, glyph: "\u2647", note: "Ab", panBase: -0.62, panGroup: "A", oscCount: 3, oscSpread: 55 },
+  Mars:      { octave: 3, vel: 0.8, glyph: "\u2642", note: "G",  panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
+  Saturn:    { octave: 4, vel: 0.5, glyph: "\u2644", note: "C",  panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
+  Ascendant: { octave: 4, vel: 0.9, glyph: "AC",     note: "Eb", panBase:  0.0,  panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Sun:       { octave: 4, vel: 1.0, glyph: "\u2609", note: "F",  panBase:  0.15, panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Venus:     { octave: 4, vel: 1.0, glyph: "\u2640", note: "A",  panBase:  0.38, panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Chiron:    { octave: 5, vel: 0.6, glyph: "\u26B7", note: "D",  panBase:  0.62, panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Neptune:   { octave: 5, vel: 0.2, glyph: "\u2646", note: "E",  panBase:  0.46, panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Mercury:   { octave: 5, vel: 0.3, glyph: "\u263F", note: "Gb", panBase:  0.08, panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Uranus:    { octave: 5, vel: 0.4, glyph: "\u2645", note: "Bb", panBase:  0.72, panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Moon:      { octave: 5, vel: 0.5, glyph: "\u263D", note: "B",  panBase: -0.23, panGroup: "A", oscCount: 2, oscSpread: 40 },
 };
 
 // ─── Tuning Constants ────────────────────────────────────────
-// Every tweakable number in one place. Change a value here,
-// hear it immediately — no need to read the engine code.
-
 const TUNING = {
   sampleRate: 24000,
-  // Oscillator
-  oscSpread: 55, // cents — detuning between FatOsc voices
-  oscCount: 3, // voices per note
   // Envelope (bloom)
-  attack: 1.5, // seconds
+  attack: 2.0,
   decay: 3.5,
-  sustain: 0.2, // level 0-1
-  release: 5.0,
+  sustain: 0.43,
+  release: 2.6,
   // Chebyshev saturation
   chebyOrder: 3,
-  chebyWet: 0.65,
+  chebyWet: 0.77,
   // Tape EQ
-  eqHigh: -24, // dB — HF rolloff
-  eqMid: 5, // dB
-  eqLow: 5, // dB — bass warmth
-  eqHighFreq: 3000, // Hz — HF shelf corner
+  eqHigh: -12,
+  eqMid: 5,
+  eqLow: 5,
+  eqHighFreq: 3000,
   // VHS wow (vibrato)
-  vibratoFreq: 0.25, // Hz
-  vibratoDepth: 0.22,
+  vibratoFreq: 0.25,
+  vibratoDepth: 0.28,
   vibratoWet: 0.8,
   // Delay cascade
-  delayTime: 0.6, // seconds
-  delayFeedback: 0.68,
-  delayWet: 0.5,
-  // Cathedral reverb
-  reverbRoom: 0.95, // 0-1
-  reverbDamp: 1500, // Hz
-  reverbWet: 0.97,
-  // Stereo drift
-  panFreq: 0.04, // Hz — 25s full cycle
-  panDepth: 0.7,
-  // Stagger
-  stagger: 0.45, // seconds between planet triggers
-  retriggerGap: 80, // ms between release and re-attack
+  delayTime: 0.777,
+  delayFeedback: 0.58,
+  delayWet: 0.64,
+  // Convolution reverb
+  reverbDecay: 6,
+  reverbWet: 0.85,
+  // Per-voice panning LFOs
+  panLfoFreq: 0.05,
+  panLfoAmplitude: 0.12,
+  // Monitor EQ crossover freqs
+  monitorLowFreq: 400,
+  monitorHighFreq: 2500,
+  // Stagger / retrigger
+  stagger: 0.45,
+  retriggerGap: 80,
+  // Shadow mode chaos targets
+  shadow: {
+    reverbWet: 0.96,
+    delayFeedback: 0.94,
+    delayWet: 0.88,
+    vibratoDepth: 0.72,
+    vibratoFreq: 0.06,
+    chebyWet: 1.0,
+    panLfoFreq: 0.18,
+    panLfoAmplitude: 0.55,
+    oscSpread: 120,
+    detuneRange: 15,
+    rampTime: 3,
+  },
+};
+
+// ZODIAC_NOTES: zodiac sign → note class. Placeholder — swap with Lionel's mapping.
+const ZODIAC_NOTES = {
+  aries: "C", taurus: "Db", gemini: "D", cancer: "Eb", leo: "E", virgo: "F",
+  libra: "Gb", scorpio: "G", sagittarius: "Ab", capricorn: "A", aquarius: "Bb", pisces: "B",
+};
+
+const LISTEN_PRESETS = {
+  headphones:  { low: -2, mid: 0,  high: 1,  label: "HP" },
+  laptop:      { low: 6,  mid: 2,  high: 3,  label: "Laptop" },
+  phone:       { low: 4,  mid: 3,  high: 2,  label: "Phone" },
+  loudspeaker: { low: 3,  mid: -2, high: 0,  label: "Speaker" },
 };
 
 // ─── Audio Engine Factory ────────────────────────────────────
 
 async function createEngine() {
-  // 24kHz: all content below 4kHz (EQ rolls off there), Nyquist at 12kHz is plenty.
-  // Halves CPU cost of every WebAudio node. Playback hint for larger buffer.
-  // lookAhead 0.2 + updateInterval 0.1 = more scheduling headroom on mobile
-  // (ambient pads don't need tight timing — stagger dwarfs the jitter)
   Tone.setContext(
     new Tone.Context({
       latencyHint: "playback",
@@ -108,14 +107,11 @@ async function createEngine() {
   );
   await Tone.start();
 
-  // ─── FX chain (signal-flow order) ─────────────────────────
-  // Chebyshev → EQ3 → Vibrato → FeedbackDelay → Freeverb → AutoPanner → Destination
+  // ─── FX chain (constructed before synths so panners have a target) ───
 
-  // 3rd-order Chebyshev — harmonic crunch, tube-amp saturation
   const chebyshev = new Tone.Chebyshev(TUNING.chebyOrder);
   chebyshev.wet.value = TUNING.chebyWet;
 
-  // Heavy lofi HF rolloff — buries above 3kHz, mid + low warmth boosted for Db2 anchor
   const eq3 = new Tone.EQ3({
     high: TUNING.eqHigh,
     mid: TUNING.eqMid,
@@ -123,77 +119,81 @@ async function createEngine() {
     highFrequency: TUNING.eqHighFreq,
   });
 
-  // VHS tape wow — slow irregular pitch drift
   const vibrato = new Tone.Vibrato({
     frequency: TUNING.vibratoFreq,
     depth: TUNING.vibratoDepth,
   });
   vibrato.wet.value = TUNING.vibratoWet;
 
-  // Delay cascade — shorter time + high feedback = rhythmic echoes
-  // Staggered planet triggers interleave with the echo pattern
   const feedbackDelay = new Tone.FeedbackDelay({
     delayTime: TUNING.delayTime,
     feedback: TUNING.delayFeedback,
   });
   feedbackDelay.wet.value = TUNING.delayWet;
 
-  // Algorithmic reverb — dramatically cheaper than convolution (no 240K-sample IR).
-  // At 97% wet the character difference vs convolution is nil.
-  // dampening rolls off highs in the tail to match the tape EQ darkening.
-  // Freeverb: Tone.js >=14.7.39 uses AudioWorklet internally.
-  // If glitchy on mobile, try Tone.Reverb({ decay: 8 }) — convolver may actually be cheaper.
-  const reverb = new Tone.Freeverb({
-    roomSize: TUNING.reverbRoom,
-    dampening: TUNING.reverbDamp,
-  });
+  const reverb = new Tone.Reverb({ decay: TUNING.reverbDecay });
+  await reverb.generate();
   reverb.wet.value = TUNING.reverbWet;
 
-  // Glacial stereo drift — 25s full L/R cycle
-  const autoPanner = new Tone.AutoPanner({
-    frequency: TUNING.panFreq,
-    depth: TUNING.panDepth,
-  }).start();
-
-  // Single chain call — reads as signal flow, impossible to mis-wire
-  // .toDestination() instead of Tone.Destination — resolves against the node's
-  // own AudioContext, not the default one (we swap contexts via setContext above).
-  chebyshev.chain(eq3, vibrato, feedbackDelay, reverb, autoPanner);
-  autoPanner.toDestination();
-
-  // ─── Synth ────────────────────────────────────────────────
-
-  // FatOscillator: detuned saws — Prophet-5 character, thick analog unison
-  // Bloom envelope: slow swell, peak, settle to quiet bed, long dissolve into reverb
-  const fatPad = new Tone.PolySynth(Tone.Synth, {
-    oscillator: {
-      type: "fatsawtooth",
-      count: TUNING.oscCount,
-      spread: TUNING.oscSpread,
-    },
-    envelope: {
-      attack: TUNING.attack,
-      decay: TUNING.decay,
-      sustain: TUNING.sustain,
-      release: TUNING.release,
-    },
-    volume: -6,
+  const monitorEQ = new Tone.EQ3({
+    low: 0,
+    mid: 0,
+    high: 0,
+    lowFrequency: TUNING.monitorLowFreq,
+    highFrequency: TUNING.monitorHighFreq,
   });
-  fatPad.maxPolyphony = 7;
-  fatPad.connect(chebyshev);
+
+  const limiter = new Tone.Limiter(-1);
+
+  chebyshev.chain(eq3, vibrato, feedbackDelay, reverb, monitorEQ, limiter);
+  limiter.toDestination();
+
+  // ─── Per-planet synths + panners ──────────────────────────
+
+  const synths = {};
+  const panners = {};
+
+  Object.entries(PLANETS).forEach(([name, cfg]) => {
+    const panner = new Tone.Panner(cfg.panBase);
+    const synth = new Tone.Synth({
+      oscillator: { type: "fattriangle", count: cfg.oscCount, spread: cfg.oscSpread },
+      envelope: {
+        attack: TUNING.attack,
+        decay: TUNING.decay,
+        sustain: TUNING.sustain,
+        release: TUNING.release,
+      },
+      volume: -12,
+    });
+    synth.connect(panner);
+    panner.connect(chebyshev);
+    synths[name] = synth;
+    panners[name] = panner;
+  });
+
+  // ─── Group LFOs — one per panGroup, drift all panners in that group ──
+
+  const panLfos = {};
+  ["A", "B", "C", "D"].forEach(group => {
+    const lfo = new Tone.LFO({ frequency: TUNING.panLfoFreq, min: -1, max: 1 });
+    lfo.amplitude.value = TUNING.panLfoAmplitude;
+    lfo.start();
+    Object.entries(PLANETS).forEach(([name, cfg]) => {
+      if (cfg.panGroup === group) lfo.connect(panners[name].pan);
+    });
+    panLfos[group] = lfo;
+  });
 
   return {
-    fatPad,
+    synths,
+    panners,
+    panLfos,
+    fx: { reverb, feedbackDelay, vibrato, chebyshev, monitorEQ },
     dispose() {
-      [
-        fatPad,
-        chebyshev,
-        eq3,
-        vibrato,
-        feedbackDelay,
-        reverb,
-        autoPanner,
-      ].forEach((n) => n.dispose());
+      Object.values(synths).forEach(s => s.dispose());
+      Object.values(panners).forEach(p => p.dispose());
+      Object.values(panLfos).forEach(l => l.dispose());
+      [chebyshev, eq3, vibrato, feedbackDelay, reverb, monitorEQ, limiter].forEach(n => n.dispose());
     },
   };
 }
@@ -202,12 +202,21 @@ async function createEngine() {
 
 export default function App() {
   const engineRef = useRef(null);
-  const [status, setStatus] = useState("idle"); // idle | ready | playing
-  const [voices, setVoices] = useState([]);
+  const [status, setStatus] = useState("idle");
+  const [activePlanets, setActivePlanets] = useState(new Set());
+  const [shadow, setShadow] = useState(false);
+  const [listenPreset, setListenPreset] = useState("headphones");
+  const shadowIntervalsRef = useRef([]);
+  const [natalMode, setNatalMode] = useState(false);
+  const [natalDate, setNatalDate] = useState("");
+  const [natalTime, setNatalTime] = useState("");
+  const [natalLat, setNatalLat] = useState("");
+  const [natalLng, setNatalLng] = useState("");
+  const [natalNotes, setNatalNotes] = useState({});
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      shadowIntervalsRef.current.forEach(id => clearInterval(id));
       if (engineRef.current) {
         engineRef.current.dispose();
         engineRef.current = null;
@@ -215,144 +224,304 @@ export default function App() {
     };
   }, []);
 
-  // Trigger a voicing — each planet gets its note at its velocity
-  // Planets stagger 0.45s apart (more deliberate unfolding, feeds delay cascade)
-  const triggerChart = useCallback((chart) => {
-    const eng = engineRef.current;
-    if (!eng) return;
-
-    const now = Tone.now();
-    const triggered = [];
-    const entries = Object.entries(chart);
-
-    entries.forEach(([planet, noteClass], i) => {
-      const cfg = PLANETS[planet];
-      if (!cfg || !noteClass) return;
-
-      const note = `${noteClass}${cfg.octave}`;
-      const onset = i * TUNING.stagger;
-
-      if (cfg.vel > 0) eng.fatPad.triggerAttack(note, now + onset, cfg.vel);
-
-      triggered.push({ planet, glyph: cfg.glyph, note });
-    });
-
-    setVoices(triggered);
-    setStatus("playing");
+  const ensureEngine = useCallback(async () => {
+    if (!engineRef.current) {
+      engineRef.current = await createEngine();
+      setStatus("ready");
+    }
+    return engineRef.current;
   }, []);
 
-  // Init (if needed) + release previous + trigger new chart
-  const play = useCallback(
-    async (chart) => {
-      // Release any currently sounding voices
-      if (engineRef.current) {
-        engineRef.current.fatPad.releaseAll();
+  const togglePlanet = useCallback(async (planet) => {
+    const eng = await ensureEngine();
+    const cfg = PLANETS[planet];
+    if (!cfg) return;
+    const noteClass = natalMode && natalNotes[planet] ? natalNotes[planet] : cfg.note;
+    const note = `${noteClass}${cfg.octave}`;
+    setActivePlanets(prev => {
+      const next = new Set(prev);
+      if (next.has(planet)) {
+        eng.synths[planet].triggerRelease(Tone.now());
+        next.delete(planet);
+      } else {
+        eng.synths[planet].triggerAttack(note, Tone.now(), cfg.vel);
+        next.add(planet);
       }
+      setStatus(next.size > 0 ? "playing" : "ready");
+      return next;
+    });
+  }, [ensureEngine, natalMode, natalNotes]);
 
-      // First click: build the engine (requires user gesture for AudioContext)
-      if (!engineRef.current) {
-        engineRef.current = await createEngine();
-        setStatus("ready");
-      }
-
-      // Brief pause between release and new attack for PolySynth voice reuse
-      setTimeout(() => triggerChart(chart), TUNING.retriggerGap);
-    },
-    [triggerChart]
-  );
-
-  // Release all voices — let the reverb tail ring out
   const release = useCallback(() => {
     if (!engineRef.current) return;
-    engineRef.current.fatPad.releaseAll();
-    setVoices([]);
+    Object.values(engineRef.current.synths).forEach(s => s.triggerRelease(Tone.now()));
+    setActivePlanets(new Set());
     setStatus("ready");
   }, []);
+
+  const toggleShadow = useCallback(async () => {
+    const eng = await ensureEngine();
+    const { reverb, feedbackDelay, vibrato, chebyshev } = eng.fx;
+    const st = TUNING.shadow;
+
+    if (!shadow) {
+      const rt = st.rampTime;
+      reverb.wet.rampTo(st.reverbWet, rt);
+      feedbackDelay.feedback.rampTo(st.delayFeedback, rt);
+      feedbackDelay.wet.rampTo(st.delayWet, rt);
+      vibrato.depth.rampTo(st.vibratoDepth, rt);
+      vibrato.frequency.rampTo(st.vibratoFreq, rt);
+      chebyshev.wet.rampTo(st.chebyWet, rt);
+
+      Object.values(eng.panLfos).forEach(lfo => {
+        lfo.frequency.rampTo(st.panLfoFreq, rt);
+        lfo.amplitude.rampTo(st.panLfoAmplitude, rt);
+      });
+
+      const spreadId = setInterval(() => {
+        Object.entries(eng.synths).forEach(([name, synth]) => {
+          const current = synth.oscillator.spread;
+          if (current < st.oscSpread) {
+            synth.oscillator.spread = Math.min(current + 3, st.oscSpread);
+          }
+        });
+      }, 60);
+
+      const detuneId = setInterval(() => {
+        Object.values(eng.synths).forEach(synth => {
+          const target = (Math.random() * 2 - 1) * st.detuneRange;
+          synth.detune.rampTo(target, 0.4);
+        });
+      }, 800);
+
+      shadowIntervalsRef.current = [spreadId, detuneId];
+    } else {
+      shadowIntervalsRef.current.forEach(id => clearInterval(id));
+      shadowIntervalsRef.current = [];
+
+      const rt = st.rampTime;
+      reverb.wet.rampTo(TUNING.reverbWet, rt);
+      feedbackDelay.feedback.rampTo(TUNING.delayFeedback, rt);
+      feedbackDelay.wet.rampTo(TUNING.delayWet, rt);
+      vibrato.depth.rampTo(TUNING.vibratoDepth, rt);
+      vibrato.frequency.rampTo(TUNING.vibratoFreq, rt);
+      chebyshev.wet.rampTo(TUNING.chebyWet, rt);
+
+      Object.values(eng.panLfos).forEach(lfo => {
+        lfo.frequency.rampTo(TUNING.panLfoFreq, rt);
+        lfo.amplitude.rampTo(TUNING.panLfoAmplitude, rt);
+      });
+
+      Object.entries(eng.synths).forEach(([name, synth]) => {
+        synth.oscillator.spread = PLANETS[name].oscSpread;
+        synth.detune.rampTo(0, rt);
+      });
+    }
+    setShadow(s => !s);
+  }, [shadow, ensureEngine]);
+
+  const applyListenPreset = useCallback(async (key) => {
+    const eng = await ensureEngine();
+    const preset = LISTEN_PRESETS[key];
+    if (!preset || !eng.fx.monitorEQ) return;
+    eng.fx.monitorEQ.low.value = preset.low;
+    eng.fx.monitorEQ.mid.value = preset.mid;
+    eng.fx.monitorEQ.high.value = preset.high;
+    setListenPreset(key);
+  }, [ensureEngine]);
+
+  const computeNatalChart = useCallback(() => {
+    if (!natalDate) return;
+
+    const [year, month, day] = natalDate.split("-").map(Number);
+    let hour = 12, minute = 0;
+    if (natalTime) {
+      [hour, minute] = natalTime.split(":").map(Number);
+    }
+
+    const latitude = parseFloat(natalLat) || 0;
+    const longitude = parseFloat(natalLng) || 0;
+
+    const origin = new Origin({
+      year, month: month - 1, date: day,
+      hour, minute,
+      latitude, longitude,
+    });
+
+    const chart = new Horoscope({
+      origin,
+      houseSystem: "whole-sign",
+      zodiac: "tropical",
+      aspectPoints: ["bodies", "points", "angles"],
+      aspectWithPoints: ["bodies", "points", "angles"],
+      aspectTypes: ["major"],
+      language: "en",
+    });
+
+    const notes = {};
+    const bodyMap = {
+      Sun: "sun", Moon: "moon", Mercury: "mercury", Venus: "venus",
+      Mars: "mars", Jupiter: "jupiter", Saturn: "saturn",
+      Uranus: "uranus", Neptune: "neptune", Pluto: "pluto", Chiron: "chiron",
+    };
+
+    Object.entries(bodyMap).forEach(([planet, bodyKey]) => {
+      const body = chart.CelestialBodies[bodyKey];
+      if (body && body.Sign && body.Sign.label) {
+        notes[planet] = ZODIAC_NOTES[body.Sign.label.toLowerCase()] || null;
+      }
+    });
+
+    // Ascendant only valid with birth time
+    if (natalTime && chart.Ascendant && chart.Ascendant.Sign) {
+      notes.Ascendant = ZODIAC_NOTES[chart.Ascendant.Sign.label.toLowerCase()] || null;
+    } else {
+      notes.Ascendant = null;
+    }
+
+    setNatalNotes(notes);
+    setNatalMode(true);
+  }, [natalDate, natalTime, natalLat, natalLng]);
+
+  const playNatalChart = useCallback(async () => {
+    if (!natalMode) return;
+    const eng = await ensureEngine();
+
+    Object.values(eng.synths).forEach(s => s.triggerRelease(Tone.now()));
+
+    setTimeout(() => {
+      const now = Tone.now();
+      const next = new Set();
+
+      Object.entries(PLANETS).forEach(([planet, cfg], i) => {
+        const noteClass = natalNotes[planet];
+        if (!noteClass) return;
+        const note = `${noteClass}${cfg.octave}`;
+        eng.synths[planet].triggerAttack(note, now + i * TUNING.stagger, cfg.vel);
+        next.add(planet);
+      });
+
+      setActivePlanets(next);
+      setStatus("playing");
+    }, TUNING.retriggerGap);
+  }, [natalMode, natalNotes, ensureEngine]);
 
   return (
     <>
       <style>{CSS}</style>
       <div className="cel-root">
-        <h1 className="cel-title">Celestial Pad</h1>
-        <p className="cel-sub">Ambient Synthesizer</p>
+        <h1 className="cel-title">Celezdial Selekta</h1>
+        <p className="cel-sub">shandcashtle shintashizher, u like?</p>
 
-        <div className="cel-buttons">
+        <div className="cel-grid">
+          {Object.entries(PLANETS).map(([planet, cfg]) => {
+            const active = activePlanets.has(planet);
+            const isUncertain = planet === "Ascendant" && natalMode && !natalTime;
+            return (
+              <button
+                key={planet}
+                type="button"
+                className={`cel-planet${active ? " cel-planet-active" : ""}${isUncertain ? " cel-planet-uncertain" : ""}`}
+                onClick={() => togglePlanet(planet)}
+              >
+                <span className="cel-planet-glyph">{cfg.glyph}</span>
+                <span className="cel-planet-name">{planet}</span>
+                <span className="cel-planet-note">
+                  {natalMode && natalNotes[planet] ? natalNotes[planet] : `${cfg.note}${cfg.octave}`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="cel-controls">
           <button
             type="button"
-            className="cel-btn"
-            onClick={() => play(CHARTS.single)}
+            className={`cel-btn cel-shadow-btn${shadow ? " cel-shadow-active" : ""}`}
+            onClick={toggleShadow}
           >
-            <span className="cel-btn-glyph">{PLANETS.Sun.glyph}</span>
-            <span className="cel-btn-label">Single Note</span>
-            <span className="cel-btn-desc">Db root tone</span>
+            <span className="cel-btn-glyph">{"\u25D0"}</span>
+            <span className="cel-btn-label">Shadow</span>
           </button>
-
           <button
             type="button"
-            className="cel-btn"
-            onClick={() => play(CHARTS.chord)}
-          >
-            <span className="cel-btn-glyph">
-              {PLANETS.Sun.glyph} {PLANETS.Venus.glyph} {PLANETS.Mars.glyph}{" "}
-              {PLANETS.Moon.glyph}
-            </span>
-            <span className="cel-btn-label">Chord</span>
-            <span className="cel-btn-desc">Dbmaj7 &middot; 4 voices</span>
-          </button>
-
-          <button
-            type="button"
-            className="cel-btn cel-btn-primary"
-            onClick={() => play(CHARTS.full)}
-          >
-            <span className="cel-btn-glyph">{"\u2605"}</span>
-            <span className="cel-btn-label">Full Voicing</span>
-            <span className="cel-btn-desc">Dbmaj9 &middot; 7 voices</span>
-          </button>
-
-          <button
-            type="button"
-            className="cel-btn cel-btn-release"
+            className="cel-btn cel-release-btn"
             onClick={release}
             disabled={status !== "playing"}
           >
             <span className="cel-btn-label">Release</span>
-            <span className="cel-btn-desc">Let it fade&hellip;</span>
           </button>
         </div>
 
-        {voices.length > 0 && (
-          <div className="cel-voices">
-            {voices.map(({ planet, glyph, note }) => (
-              <div key={planet} className="cel-voice">
-                <span className="cel-voice-glyph">{glyph}</span>
-                <span className="cel-voice-planet">{planet}</span>
-                <span className="cel-voice-note">{note}</span>
-              </div>
-            ))}
+        <div className="cel-listen">
+          {Object.entries(LISTEN_PRESETS).map(([key, preset]) => (
+            <button
+              key={key}
+              type="button"
+              className={`cel-listen-pill${listenPreset === key ? " cel-listen-active" : ""}`}
+              onClick={() => applyListenPreset(key)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <details className="cel-natal">
+          <summary className="cel-natal-summary">Natal Chart</summary>
+          <div className="cel-natal-body">
+            <div className="cel-natal-inputs">
+              <input
+                type="date"
+                value={natalDate}
+                onChange={e => setNatalDate(e.target.value)}
+                className="cel-natal-input"
+              />
+              <input
+                type="time"
+                value={natalTime}
+                onChange={e => setNatalTime(e.target.value)}
+                className="cel-natal-input"
+                placeholder="Birth time (optional)"
+              />
+              <input
+                type="number"
+                value={natalLat}
+                onChange={e => setNatalLat(e.target.value)}
+                className="cel-natal-input"
+                placeholder="Latitude"
+                step="0.01"
+              />
+              <input
+                type="number"
+                value={natalLng}
+                onChange={e => setNatalLng(e.target.value)}
+                className="cel-natal-input"
+                placeholder="Longitude"
+                step="0.01"
+              />
+            </div>
+            <div className="cel-natal-actions">
+              <button type="button" className="cel-btn cel-natal-compute" onClick={computeNatalChart}>
+                Compute Chart
+              </button>
+              <button type="button" className="cel-btn cel-natal-play" onClick={playNatalChart} disabled={!natalMode}>
+                Play Chart
+              </button>
+            </div>
           </div>
-        )}
+        </details>
 
         <div className="cel-info">
-          <p>
-            Each planet triggers a voice &mdash; spread across registers,
-            staggered in time.
-          </p>
-          <p>3 detuned oscillators per voice, drowning in reverb and delay.</p>
+          <p>Tap planets to build your chord. Each voice has its own stereo position.</p>
           <p className="cel-chain">
-            Fat saw pad &rarr; Tube saturation &rarr; Tape EQ
+            Fat saw &rarr; Saturation &rarr; Tape EQ &rarr; VHS wow
             <br />
-            &rarr; VHS wow &rarr; Delay cascade
-            <br />
-            &rarr; Cathedral reverb &rarr; Stereo drift
+            &rarr; Delay &rarr; Reverb &rarr; Monitor EQ &rarr; Limiter
           </p>
         </div>
 
         <div className="cel-footer">
-          <p>
-            v4.5 &middot; Dbmaj9 spread voicing &middot; 24kHz. FatOscillator
-            unison, bloom envelope, algorithmic reverb.
-          </p>
+          <p>v6 &middot; 12 voices &middot; 24kHz &middot; Per-planet stereo</p>
         </div>
       </div>
     </>
@@ -377,7 +546,7 @@ const CSS = `
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 3rem 1.5rem;
+    padding: 2.5rem 1rem;
     user-select: none;
     -webkit-user-select: none;
   }
@@ -391,6 +560,7 @@ const CSS = `
     text-shadow: 0 0 30px rgba(180, 140, 255, 0.3);
     animation: cel-glow 6s ease-in-out infinite;
     margin-bottom: 0.5rem;
+    text-align: center;
   }
 
   @keyframes cel-glow {
@@ -399,32 +569,113 @@ const CSS = `
   }
 
   .cel-sub {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     color: #8878a0;
     letter-spacing: 0.08em;
-    margin-bottom: 2.5rem;
-  }
-
-  .cel-buttons {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-    justify-content: center;
     margin-bottom: 2rem;
+    text-align: center;
   }
 
-  .cel-btn {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(180, 140, 255, 0.15);
-    border-radius: 12px;
+  /* ── Planet toggle grid ──────────────────────────────── */
+
+  .cel-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.6rem;
+    max-width: 400px;
+    width: 100%;
+    margin-bottom: 1.2rem;
+  }
+
+  .cel-planet {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(180, 140, 255, 0.12);
+    border-radius: 10px;
     color: #d8d0e8;
-    padding: 1.2rem 1.5rem;
+    padding: 0.7rem 0.5rem;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.3rem;
-    min-width: 130px;
+    gap: 0.15rem;
+    width: auto;
+    min-width: 0;
+    transition: all 0.25s ease;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .cel-planet:hover {
+    background: rgba(180, 140, 255, 0.08);
+    border-color: rgba(180, 140, 255, 0.3);
+  }
+
+  .cel-planet:active {
+    transform: scale(0.95);
+  }
+
+  .cel-planet-active {
+    background: rgba(180, 140, 255, 0.14);
+    border-color: rgba(180, 140, 255, 0.55);
+    box-shadow: 0 0 16px rgba(140, 100, 220, 0.3), inset 0 0 12px rgba(180, 140, 255, 0.06);
+  }
+
+  .cel-planet-active:hover {
+    background: rgba(180, 140, 255, 0.2);
+    border-color: rgba(180, 140, 255, 0.65);
+  }
+
+  .cel-planet-glyph {
+    font-size: 1.3rem;
+    color: #c4a0ff;
+  }
+
+  .cel-planet-active .cel-planet-glyph {
+    color: #e0c8ff;
+    text-shadow: 0 0 10px rgba(200, 160, 255, 0.6);
+  }
+
+  .cel-planet-name {
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
+  }
+
+  .cel-planet-note {
+    font-size: 0.6rem;
+    color: #8070a0;
+  }
+
+  .cel-planet-active .cel-planet-note {
+    color: #b8a0d8;
+  }
+
+  .cel-planet-uncertain {
+    opacity: 0.4;
+  }
+
+  /* ── Controls row (Shadow + Release) ─────────────────── */
+
+  .cel-controls {
+    display: flex;
+    gap: 0.8rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+
+  /* ── Base button ─────────────────────────────────────── */
+
+  .cel-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(180, 140, 255, 0.15);
+    border-radius: 10px;
+    color: #d8d0e8;
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
     transition: all 0.3s ease;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
@@ -433,8 +684,8 @@ const CSS = `
   .cel-btn:hover:not(:disabled) {
     background: rgba(180, 140, 255, 0.1);
     border-color: rgba(180, 140, 255, 0.35);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(140, 100, 220, 0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(140, 100, 220, 0.12);
   }
 
   .cel-btn:active:not(:disabled) {
@@ -447,75 +698,163 @@ const CSS = `
     cursor: not-allowed;
   }
 
-  .cel-btn-primary {
-    border-color: rgba(180, 140, 255, 0.3);
-    background: rgba(180, 140, 255, 0.08);
-  }
-
-  .cel-btn-primary:hover:not(:disabled) {
-    background: rgba(180, 140, 255, 0.18);
-    border-color: rgba(180, 140, 255, 0.5);
-    box-shadow: 0 4px 30px rgba(140, 100, 220, 0.25);
-  }
-
-  .cel-btn-release {
-    border-color: rgba(255, 180, 140, 0.15);
-  }
-
-  .cel-btn-release:hover:not(:disabled) {
-    background: rgba(255, 180, 140, 0.1);
-    border-color: rgba(255, 180, 140, 0.35);
-  }
-
   .cel-btn-glyph {
-    font-size: 1.4rem;
+    font-size: 1.1rem;
     color: #c4a0ff;
   }
 
   .cel-btn-label {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     letter-spacing: 0.03em;
   }
 
-  .cel-btn-desc {
-    font-size: 0.75rem;
-    color: #8070a0;
+  /* ── Shadow button ───────────────────────────────────── */
+
+  .cel-shadow-btn {
+    border-color: rgba(255, 120, 60, 0.2);
+    flex-direction: row;
+    gap: 0.4rem;
+    padding: 0.6rem 1.4rem;
   }
 
-  .cel-voices {
+  .cel-shadow-btn:hover:not(:disabled) {
+    background: rgba(255, 120, 60, 0.08);
+    border-color: rgba(255, 120, 60, 0.35);
+    box-shadow: none;
+  }
+
+  .cel-shadow-btn .cel-btn-glyph {
+    color: #ff9060;
+  }
+
+  .cel-shadow-active {
+    background: rgba(255, 80, 30, 0.16);
+    border-color: rgba(255, 120, 60, 0.6);
+    box-shadow: 0 0 16px rgba(255, 80, 30, 0.3), inset 0 0 12px rgba(255, 120, 60, 0.08);
+    animation: cel-shadow-pulse 3s ease-in-out infinite;
+  }
+
+  .cel-shadow-active:hover:not(:disabled) {
+    background: rgba(255, 80, 30, 0.24);
+    border-color: rgba(255, 120, 60, 0.7);
+  }
+
+  .cel-shadow-active .cel-btn-glyph {
+    color: #ffb080;
+    text-shadow: 0 0 12px rgba(255, 100, 40, 0.7);
+  }
+
+  @keyframes cel-shadow-pulse {
+    0%, 100% { box-shadow: 0 0 16px rgba(255, 80, 30, 0.3), inset 0 0 12px rgba(255, 120, 60, 0.08); }
+    50% { box-shadow: 0 0 28px rgba(255, 80, 30, 0.5), inset 0 0 16px rgba(255, 120, 60, 0.12); }
+  }
+
+  /* ── Release button ──────────────────────────────────── */
+
+  .cel-release-btn {
+    border-color: rgba(255, 180, 140, 0.15);
+    padding: 0.6rem 2rem;
+  }
+
+  .cel-release-btn:hover:not(:disabled) {
+    background: rgba(255, 180, 140, 0.1);
+    border-color: rgba(255, 180, 140, 0.35);
+    box-shadow: none;
+  }
+
+  /* ── Listen preset pills ─────────────────────────────── */
+
+  .cel-listen {
     display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    gap: 0.4rem;
     justify-content: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
   }
 
-  .cel-voice {
-    background: rgba(180, 140, 255, 0.08);
-    border: 1px solid rgba(180, 140, 255, 0.2);
-    border-radius: 8px;
-    padding: 0.5rem 0.8rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-  }
-
-  .cel-voice-glyph {
-    font-size: 1.1rem;
-    color: #c4a0ff;
-  }
-
-  .cel-voice-planet {
-    font-weight: 600;
-    color: #e0d8f0;
-  }
-
-  .cel-voice-note {
+  .cel-listen-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(180, 140, 255, 0.12);
+    border-radius: 20px;
     color: #8878a0;
-    font-size: 0.8rem;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  .cel-listen-pill:hover {
+    background: rgba(180, 140, 255, 0.08);
+    color: #d8d0e8;
+  }
+
+  .cel-listen-active {
+    background: rgba(180, 140, 255, 0.14);
+    border-color: rgba(180, 140, 255, 0.5);
+    color: #e0c8ff;
+  }
+
+  /* ── Natal chart section ─────────────────────────────── */
+
+  .cel-natal {
+    max-width: 400px;
+    width: 100%;
+    margin-bottom: 1.5rem;
+  }
+
+  .cel-natal-summary {
+    cursor: pointer;
+    color: #8878a0;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 0.5rem;
+    letter-spacing: 0.05em;
+    list-style: none;
+  }
+
+  .cel-natal-summary::-webkit-details-marker { display: none; }
+
+  .cel-natal-body {
+    padding: 0.8rem 0;
+  }
+
+  .cel-natal-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .cel-natal-input {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(180, 140, 255, 0.15);
+    border-radius: 8px;
+    color: #d8d0e8;
+    padding: 0.5rem;
+    font-size: 0.8rem;
+    font-family: inherit;
+    width: 100%;
+  }
+
+  .cel-natal-input::placeholder { color: #504868; }
+
+  .cel-natal-actions {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+
+  .cel-natal-compute {
+    border-color: rgba(180, 140, 255, 0.25);
+  }
+
+  .cel-natal-play {
+    border-color: rgba(180, 140, 255, 0.15);
+  }
+
+  /* ── Info / footer ───────────────────────────────────── */
 
   .cel-info {
     text-align: center;
@@ -538,7 +877,7 @@ const CSS = `
   }
 
   .cel-footer {
-    margin-top: 3rem;
+    margin-top: 2.5rem;
     max-width: 500px;
     text-align: center;
     font-size: 0.7rem;
