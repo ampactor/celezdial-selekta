@@ -86,7 +86,9 @@ Seven pre-wired chains — same nodes, different order, different character:
 
 ## Natal Chart
 
-Enter birth date, time, and location to compute planetary positions via `circular-natal-horoscope-js`. Remaps voice pitches to zodiac-derived notes — Lionel's chromatic mapping at 100/30 cents per degree.
+Enter birth date, time, and location to compute a tropical whole-sign horoscope via `circular-natal-horoscope-js`. Each celestial body (Sun, Moon, Mercury through Pluto, Chiron) activates the voice of its zodiac sign — your chart becomes a chord. If birth time is provided, the Ascendant activates its sign too.
+
+Each body's ecliptic degree within its sign (0–30°) applies microtonal detuning: `(degree - 15) * 3.33¢`. A planet at the start of a sign detunes -50¢, mid-sign stays centered, end of sign +50¢. Two people with Sun in Aries hear different tunings depending on where in Aries their Sun sits.
 
 ## Setup
 
