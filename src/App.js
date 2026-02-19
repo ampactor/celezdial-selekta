@@ -333,6 +333,14 @@ const SIGN_NAMES = KEYBOARD_ORDER;
 const SIGNS_BY_LOWERCASE = Object.fromEntries(
   SIGN_NAMES.map((k) => [k.toLowerCase(), k]),
 );
+// ─── Device-aware listen preset detection ─────────────────────
+const DETECTED_LISTEN_PRESET = (() => {
+  if (typeof window === "undefined") return "headphones";
+  const mq = (q) => window.matchMedia(q).matches;
+  if (mq("(max-width: 600px) and (pointer: coarse)")) return "phone";
+  if (mq("(min-width: 601px) and (max-width: 1024px) and (pointer: coarse)")) return "laptop";
+  return "headphones";
+})();
 // OSC_TYPES imported from tuning.js — 8 types cycled by Breathe
 
 // ─── Knob Mapping ────────────────────────────────────────────
@@ -1057,7 +1065,7 @@ export default function App() {
   const [activeSigns, setActiveSigns] = useState(new Set());
   const [shadow, setShadow] = useState(false);
   const [oscIndex, setOscIndex] = useState(null);
-  const [listenPreset, setListenPreset] = useState("headphones");
+  const [listenPreset, setListenPreset] = useState(DETECTED_LISTEN_PRESET);
   const shadowIntervalsRef = useRef([]);
   const visualStateRef = useRef({});
   const keyRefsRef = useRef({});
@@ -1462,6 +1470,13 @@ export default function App() {
       _enginePromise = createEngine().then((eng) => {
         for (const [name, def] of Object.entries(KNOB_DEFS)) {
           KNOB_MAP[name]?.apply(eng, def.default);
+        }
+        // Apply detected listen preset EQ
+        const lp = LISTEN_PRESETS[DETECTED_LISTEN_PRESET];
+        if (lp && eng.fx.monitorEQ) {
+          eng.fx.monitorEQ.low.value = lp.low;
+          eng.fx.monitorEQ.mid.value = lp.mid;
+          eng.fx.monitorEQ.high.value = lp.high;
         }
         engineRef.current = eng;
         setStatus("ready");
