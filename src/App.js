@@ -1770,7 +1770,7 @@ export default function App() {
         </details>
 
         <div className="cel-footer">
-          <p>v12 &middot; 12&times;2 voices &middot; 16kHz &middot; 35 knobs</p>
+          <p>v12 &middot; 12&times;2 voices &middot; 44.1kHz &middot; 35 knobs</p>
           <h1 className="cel-title">celezdial selekta</h1>
         </div>
       </div>

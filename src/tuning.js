@@ -42,7 +42,7 @@
 // Default FX parameter values. These initialize the audio engine.
 // KNOB_DEFS.default references these — single source of truth.
 export const TUNING = {
-  sampleRate: 16000,
+  sampleRate: 44100,
 
   // ── Envelope (Bloom macro) ──
   // ADSR shape for all PolySynth voices.
