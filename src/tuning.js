@@ -441,6 +441,30 @@ export const CHAINS = {
     bypass: {},
   },
 
+  // ── Zodiac ──
+  // The "ultimate" chain — tape + furnace + cathedral fused.
+  // Vibrato first (time-varying harmonics), echo before saturation
+  // (harmonic accumulation per repeat), EQ before saturation (Tone
+  // macro becomes harmonic color selector), clean reverb after
+  // saturation (shimmer without mud), post-reverb modulation.
+  // Signal: sum → vibrato → ECHO → eq → cheby → [dist] → reverb → chorus → [phaser] → monEQ → clip
+  zodiac: {
+    order: [
+      "vibrato",
+      "ECHO",
+      "eq3",
+      "chebyshev",
+      "reverb",
+      "chorus",
+      "monitorEQ",
+      "softClip",
+    ],
+    bypass: {
+      distortion: { after: "chebyshev", before: "reverb" },
+      phaser: { after: "chorus", before: "monitorEQ" },
+    },
+  },
+
   // ── Custom ──
   // Blank slate — all available nodes listed, all commented out.
   // Uncomment and reorder to build your own chain from scratch.
@@ -482,4 +506,4 @@ export const CHAINS = {
 
 // Which chain to wire on engine init.
 // Change this string, save, refresh — instant new character.
-export const ACTIVE_CHAIN = "custom";
+export const ACTIVE_CHAIN = "zodiac";

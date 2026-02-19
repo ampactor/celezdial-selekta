@@ -84,7 +84,19 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import * as Tone from "tone";
 import { Origin, Horoscope } from "circular-natal-horoscope-js";
-import { TUNING, SHADOW, MACROS, CHAINS, ACTIVE_CHAIN, LISTEN_PRESETS } from "./tuning";
+import {
+  TUNING,
+  SHADOW,
+  MACROS,
+  CHAINS,
+  ACTIVE_CHAIN,
+  LISTEN_PRESETS,
+} from "./tuning";
+// "./presets/deep-space-oracle"
+// "./presets/tape-seance"
+// "./presets/harmonic-furnace"
+// "./presets/glass-meridian"
+// "./tuning"
 
 // ─── Font Constants ───────────────────────────────────────────
 // "'Rudelsberg', serif"
@@ -833,10 +845,24 @@ async function createEngine() {
   }
 
   const chainNodes = {
-    chebyshev, eq3, vibrato, reverb, chorus, monitorEQ, softClip,
-    phaser, distortion, echoCrossfade, echoDelay, echoInputGain,
+    chebyshev,
+    eq3,
+    vibrato,
+    reverb,
+    chorus,
+    monitorEQ,
+    softClip,
+    phaser,
+    distortion,
+    echoCrossfade,
+    echoDelay,
+    echoInputGain,
   };
-  const { bypassState, bypassable } = wireChain(sumBus, chainNodes, CHAINS[ACTIVE_CHAIN]);
+  const { bypassState, bypassable } = wireChain(
+    sumBus,
+    chainNodes,
+    CHAINS[ACTIVE_CHAIN],
+  );
 
   function setBypass(name, bypassed) {
     if (bypassState[name] === bypassed) return;
@@ -1321,7 +1347,8 @@ export default function App() {
       setStatus("ready");
     }
     if (shadow) {
-      const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } = eng.fx;
+      const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } =
+        eng.fx;
       const rt = SHADOW.rampTime;
       const restored = computeAllParams(macrosRef.current);
       shadowIntervalsRef.current.forEach((id) => clearInterval(id));
@@ -1351,7 +1378,8 @@ export default function App() {
 
   const toggleShadow = useCallback(async () => {
     const eng = await ensureEngine();
-    const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } = eng.fx;
+    const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } =
+      eng.fx;
     const st = SHADOW;
 
     if (!shadow) {
