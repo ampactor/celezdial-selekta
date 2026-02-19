@@ -5,7 +5,7 @@ Polyphonic ambient synthesizer mapped to the zodiac. 12 voices on a chromatic wh
 ## Signal Chain (Zodiac — active default)
 
 ```
-12 × PolySynth (fatsine, per-sign tuning + Cousto detune)
+12 × PolySynth (per-sign oscType via planetary character + Cousto detune)
   → Panners (4 LFO groups, slow stereo drift)
   → sumBus ─────────────────── polyphonic sum before saturation
       → Highpass (35Hz, -12dB/oct)
@@ -50,22 +50,22 @@ Velocity follows astrological hierarchy — luminaries (Sun/Moon signs) are loud
 
 ## Voices
 
-| Sign | Note | Oct | Vel | Cousto ¢ | Pan Group | Osc Count | Spread ¢ |
-|------|------|-----|-----|----------|-----------|-----------|----------|
-| Aquarius ♒︎ | C | 3 | 0.33 | +6 | A | 2 | 5 |
-| Pisces ♓︎ | Db | 5 | 0.38 | −6.5 | D | 3 | 12 |
-| Aries ♈︎ | D | 4 | 0.52 | −12.5 | B | 2 | 8 |
-| Taurus ♉︎ | Eb | 3 | 0.50 | +5 | C | 2 | 5 |
-| Gemini ♊︎ | E | 5 | 0.48 | +16.5 | B | 3 | 12 |
-| Cancer ♋︎ | F | 4 | 0.60 | +11.5 | D | 2 | 8 |
-| Leo ♌︎ | Gb | 3 | 0.65 | +19 | B | 2 | 5 |
-| Virgo ♍︎ | G | 5 | 0.45 | +16.5 | A | 3 | 12 |
-| Libra ♎︎ | Ab | 4 | 0.47 | +5 | C | 2 | 8 |
-| Scorpio ♏︎ | A | 3 | 0.48 | −12.5 | C | 2 | 5 |
-| Sagittarius ♐︎ | Bb | 5 | 0.40 | −6.5 | D | 3 | 12 |
-| Capricorn ♑︎ | B | 4 | 0.35 | +6 | A | 2 | 8 |
+| Sign | Note | Oct | Vel | Cousto ¢ | Osc Type | Pan | Count | Spread ¢ |
+|------|------|-----|-----|----------|----------|-----|-------|----------|
+| Aquarius ♒︎ | C | 3 | 0.33 | +6 | fmtriangle | A | — | — |
+| Pisces ♓︎ | Db | 5 | 0.38 | −6.5 | amtriangle | D | — | — |
+| Aries ♈︎ | D | 4 | 0.52 | −12.5 | fatsawtooth | B | 2 | 8 |
+| Taurus ♉︎ | Eb | 3 | 0.50 | +5 | fattriangle | C | 2 | 5 |
+| Gemini ♊︎ | E | 5 | 0.48 | +16.5 | fmsine | B | — | — |
+| Cancer ♋︎ | F | 4 | 0.60 | +11.5 | amsine | D | — | — |
+| Leo ♌︎ | Gb | 3 | 0.65 | +19 | fatsine | B | 2 | 5 |
+| Virgo ♍︎ | G | 5 | 0.45 | +16.5 | fmsine | A | — | — |
+| Libra ♎︎ | Ab | 4 | 0.47 | +5 | fattriangle | C | 2 | 8 |
+| Scorpio ♏︎ | A | 3 | 0.48 | −12.5 | fatsawtooth | C | 2 | 5 |
+| Sagittarius ♐︎ | Bb | 5 | 0.40 | −6.5 | amtriangle | D | — | — |
+| Capricorn ♑︎ | B | 4 | 0.35 | +6 | fmtriangle | A | — | — |
 
-Four pan groups (A–D) each driven by an independent LFO at 0.03Hz. Voices in the same group drift together. Octave 3 voices get 2 oscillators (intimate), octave 5 voices get 3 (wider shimmer). Fletcher-Munson compensation flattens perceived loudness across the range (+5dB oct 3, +2dB oct 3 ref, 0dB oct 4, −2dB oct 5).
+Four pan groups (A–D) each driven by an independent LFO at 0.03Hz. Voices in the same group drift together. Count/Spread apply only to fat oscillator types (5 signs); AM/FM types (7 signs) don't use detuned oscillator stacks. Fletcher-Munson compensation flattens perceived loudness across the range (+5dB oct 3, +2dB oct 3, 0dB oct 4, −2dB oct 5). Adaptive voicing adds `5 × log10(12 / active)` dB boost for sparse voicings (1 voice = +5.4dB, 3 = +3dB, 12 = 0dB).
 
 ## Cousto Planetary Tuning
 
@@ -86,6 +86,29 @@ Signs sharing a ruler share the same offset — pairs that are "in tune" with ea
 | Saturn | +12 | +6 | Aquarius, Capricorn |
 
 Two independent systems coexist: Lionel's chromatic-calendar determines the note class (C through B), Cousto determines the cents offset within that note. In natal mode, degree-based detune (`(degree - 15) × 3.33¢`) replaces Cousto.
+
+## Planetary Character
+
+Each sign inherits its ruling planet's sonic personality — oscillator type and ADSR envelope multipliers. Orbital speed maps to envelope speed: inner planets (Mars, Mercury) have fast, driven envelopes; outer planets (Jupiter, Saturn) are slow and expansive.
+
+| Planet | Osc Type | ATK | DEC | SUS | REL | Character |
+|--------|----------|-----|-----|-----|-----|-----------|
+| Sun | fatsine | ×0.8 | ×0.9 | ×1.1 | ×0.9 | Warm center, assertive |
+| Moon | amsine | ×1.2 | ×1.1 | ×1.0 | ×1.3 | Tidal AM, emotional sustain |
+| Mars | fatsawtooth | ×0.6 | ×0.7 | ×0.9 | ×0.8 | Aggressive harmonics, driven |
+| Venus | fattriangle | ×1.3 | ×1.1 | ×1.1 | ×1.1 | Warm rounded, graceful |
+| Mercury | fmsine | ×0.7 | ×0.8 | ×0.9 | ×0.8 | Metallic FM precision |
+| Jupiter | amtriangle | ×1.4 | ×1.2 | ×1.0 | ×1.4 | Expansive AM warmth |
+| Saturn | fmtriangle | ×1.5 | ×1.3 | ×1.0 | ×1.5 | Structured FM complexity |
+
+Envelope knobs set a base value; each sign multiplies by its planet's factor. With default 2.8s attack: Mars signs attack in ~1.7s, Saturn in ~4.2s. Creates staggered bloom where inner-planet voices arrive first.
+
+Three oscillator families:
+- **Fat** (5 signs: Leo, Aries, Scorpio, Taurus, Libra) — detuned oscillator stacks, support count/spread and Eclipse spread ramp
+- **AM** (3 signs: Cancer, Sagittarius, Pisces) — amplitude modulation, bell-like to warm
+- **FM** (4 signs: Gemini, Virgo, Capricorn, Aquarius) — frequency modulation, metallic to structured
+
+Signs sharing a ruler share identical character — Aries and Scorpio both get Mars's aggressive fatsawtooth, Taurus and Libra both get Venus's graceful fattriangle.
 
 ## Astrological System
 
@@ -129,7 +152,7 @@ Eight pre-wired chains — same nodes, different order, different character:
 
 | Group | Knobs |
 |-------|-------|
-| Envelope | ATK, DEC, SUS, REL |
+| Envelope | ATK, DEC, SUS, REL (× per-sign planetary multiplier) |
 | Vibrato | RATE, DPTH, MIX |
 | Pan | RATE, WDTH |
 | Echo | TIME, FDBK, MIX, FILT |
@@ -140,9 +163,11 @@ Eight pre-wired chains — same nodes, different order, different character:
 | Chorus | RATE, DLY, DPTH, MIX |
 | Phaser | RATE, OCT, BASE, Q, MIX |
 
-**Eclipse** — Chaos mode. FX params ramp toward extreme values over 16 seconds (feedback 0.87, reverb wet 0.85, chebyshev wet 0.85, spread 120¢, etc.). Toggle off to restore.
+**Eclipse** — Chaos mode. FX params ramp toward extreme values over 16 seconds (feedback 0.87, reverb wet 0.85, chebyshev wet 0.85, spread 120¢ on fat types only, etc.). Toggle off to restore.
 
-**Breathe** — Cycles oscillator type: fatsine → amsine → fattriangle → amtriangle → fmtriangle → fatsawtooth → fmsine → fatsquare.
+**Breathe** — Cycles oscillator type: per-sign (planetary defaults) → fatsine → amsine → fattriangle → amtriangle → fmtriangle → fatsawtooth → fmsine → fatsquare → per-sign → ... On per-sign, each sign uses its ruling planet's oscillator. On uniform types, all 12 signs share one type.
+
+**Oracle** — Dot pyramid below the Eclipse/Breathe row. Clicking opens the Controls veil (knobs, listen presets, randomize). Discoverable, not advertised.
 
 **Listen** — Monitor EQ presets for headphones, laptop speakers, phone, or loudspeakers.
 
@@ -171,7 +196,7 @@ npm start
 
 ## Tuning
 
-All sound-shaping numbers live in `src/tuning.js`: TUNING defaults, SHADOW chaos targets, KNOB_DEFS, KNOB_GROUPS, LISTEN_PRESETS, CHAINS, OSC_TYPES, COUSTO_DETUNE, OCTAVE_GAIN. Change a value, hear the difference.
+All sound-shaping numbers live in `src/tuning.js`: TUNING defaults, SHADOW chaos targets, KNOB_DEFS, KNOB_GROUPS, LISTEN_PRESETS, CHAINS, OSC_TYPES, COUSTO_DETUNE, OCTAVE_GAIN, PLANETARY_CHARACTER, SIGN_RULERS. Change a value, hear the difference.
 
 Engine + UI + visuals live in `src/App.js`.
 

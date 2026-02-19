@@ -3,13 +3,15 @@
 // Open this file, change numbers, save, hot-reload hears the diff.
 //
 // Exports:
-//   TUNING         FX parameter defaults
-//   SHADOW         Eclipse mode chaos targets
-//   KNOB_DEFS      Per-knob metadata (label, group, min, max, scale, unit)
-//   KNOB_GROUPS    Group ordering for UI layout
-//   LISTEN_PRESETS Monitor EQ presets for different playback devices
-//   CHAINS         FX chain orderings (declarative node arrays)
-//   ACTIVE_CHAIN   Which chain config to wire on engine init
+//   TUNING              FX parameter defaults
+//   SHADOW              Eclipse mode chaos targets
+//   KNOB_DEFS           Per-knob metadata (label, group, min, max, scale, unit)
+//   KNOB_GROUPS         Group ordering for UI layout
+//   LISTEN_PRESETS      Monitor EQ presets for different playback devices
+//   CHAINS              FX chain orderings (declarative node arrays)
+//   ACTIVE_CHAIN        Which chain config to wire on engine init
+//   PLANETARY_CHARACTER Per-planet oscillator type + ADSR multipliers
+//   SIGN_RULERS         Sign → ruling planet name
 //
 // ─── HOW CHAINS WORK ─────────────────────────────────────────
 //
@@ -512,4 +514,41 @@ export const COUSTO_DETUNE = {
   Scorpio:     -25,  // Mars      — (shared ruler with Aries)
   Sagittarius: -13,  // Jupiter   — (shared ruler with Pisces)
   Capricorn:    12,  // Saturn    — (shared ruler with Aquarius)
+};
+
+// ─── Sign Rulers ─────────────────────────────────────────────
+// Sign → traditional ruling planet. Makes the implicit Cousto ruler
+// comments machine-readable. Shared-ruler pairs inherit identical
+// planetary character automatically.
+export const SIGN_RULERS = {
+  Aries:       "Mars",
+  Taurus:      "Venus",
+  Gemini:      "Mercury",
+  Cancer:      "Moon",
+  Leo:         "Sun",
+  Virgo:       "Mercury",
+  Libra:       "Venus",
+  Scorpio:     "Mars",
+  Sagittarius: "Jupiter",
+  Capricorn:   "Saturn",
+  Aquarius:    "Saturn",
+  Pisces:      "Jupiter",
+};
+
+// ─── Planetary Character ─────────────────────────────────────
+// Keyed by ruler planet. Each planet defines an oscillator type and
+// ADSR envelope multipliers. Orbital speed ↔ envelope speed: inner
+// planets (Mars, Mercury) have fast envelopes, outer (Jupiter, Saturn)
+// are slow and expansive.
+//
+// Result: 5 fat-type signs, 3 AM signs, 4 FM signs.
+// Fat types use oscCount/oscSpread; AM/FM oscillators don't.
+export const PLANETARY_CHARACTER = {
+  Sun:     { oscType: "fatsine",      attackMul: 0.8, decayMul: 0.9, sustainMul: 1.1, releaseMul: 0.9 },
+  Moon:    { oscType: "amsine",       attackMul: 1.2, decayMul: 1.1, sustainMul: 1.0, releaseMul: 1.3 },
+  Mars:    { oscType: "fatsawtooth",  attackMul: 0.6, decayMul: 0.7, sustainMul: 0.9, releaseMul: 0.8 },
+  Venus:   { oscType: "fattriangle",  attackMul: 1.3, decayMul: 1.1, sustainMul: 1.1, releaseMul: 1.1 },
+  Mercury: { oscType: "fmsine",       attackMul: 0.7, decayMul: 0.8, sustainMul: 0.9, releaseMul: 0.8 },
+  Jupiter: { oscType: "amtriangle",   attackMul: 1.4, decayMul: 1.2, sustainMul: 1.0, releaseMul: 1.4 },
+  Saturn:  { oscType: "fmtriangle",   attackMul: 1.5, decayMul: 1.3, sustainMul: 1.0, releaseMul: 1.5 },
 };

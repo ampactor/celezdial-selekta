@@ -1,10 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
-// CELESTIAL PAD v12 — Soft Clip · SVG Knobs · Direct Control
+// CELESTIAL PAD v13 — Per-Sign Character · Adaptive Voicing
 //
 // ─── ARCHITECTURE OVERVIEW ──────────────────────────────────
 //
-// 12 Tone.PolySynth instances (3 voices each), one per planet. Each:
-//   PolySynth (3× fat oscillator, ADSR envelope)
+// 12 Tone.PolySynth instances (2-voice polyphony each), one per
+// zodiac sign. Each sign's oscillator type is determined by its
+// ruling planet via PLANETARY_CHARACTER (fat/AM/FM variants).
+// SIGN_CHARACTER merges SIGNS + PLANETARY_CHARACTER at init:
+//   PolySynth (per-sign oscType, multiplied ADSR envelope)
 //     → Panner (fixed stereo base + LFO drift per pan group)
 //       → sumBus (Gain node — all voices merge here)
 //
@@ -14,37 +17,35 @@
 // distortion (sum/difference tones between partials). This is
 // what gives the pad its FM-like shimmer and harmonic density.
 //
-// ─── FX CHAIN (configurable — see CHAIN CONFIGS below) ──────
+// ─── PLANETARY CHARACTER ──────────────────────────────────
 //
-// Current default: "Cathedral" (Config A)
-//   sumBus → Chebyshev → EQ3 → Vibrato → Echo(CrossFade)
-//     → Freeverb → Chorus → MonitorEQ → tanh soft clip → destination
+// Each sign inherits its ruling planet's sonic personality:
+//   oscType     — fat (count/spread), AM, or FM variant
+//   ADSR muls   — orbital speed ↔ envelope speed
 //
-// Each FX node's role:
-//   Chebyshev    — Polynomial waveshaper. Generates harmonics from
-//                  the summed signal. Order N adds Nth harmonic.
-//                  Wet controls dry/saturated blend. At 1.0 (default),
-//                  full saturation — maximum intermodulation.
-//   EQ3          — 3-band "tape" EQ. High rolled off (-24dB default)
-//                  simulates tape head frequency response. Shapes
-//                  the saturated signal before time-domain effects.
-//   Vibrato      — Slow LFO pitch modulation on the full mix.
-//                  Simulates VHS tape wow/flutter. Low rate (0.25Hz)
-//                  + moderate depth = seasick drift, not chorus.
-//   Echo loop   — Hand-wired delay with feedback path containing
-//                  lowpass filter + tanh saturator. Each repeat gets
-//                  progressively darker and warmer (tape delay character).
-//                  Uses CrossFade for dry/wet mix. Placed after vibrato
-//                  so echoes inherit the pitch drift.
-//   Freeverb     — Schroeder reverb (parallel comb filters + series
-//                  allpass). Comb-filter resonances interact with
-//                  Chebyshev harmonics — metallic shimmer emerges.
-//                  NOT convolution — the resonances are the point.
-//   MonitorEQ    — 3-band output EQ for listening environment
-//                  compensation. Presets: HP, Laptop, Phone, Speaker.
-//   Soft clip    — tanh waveshaper as final limiter. Preserves
-//                  Freeverb resonant peaks that Limiter(-1) killed.
-//                  4x oversampled to reduce aliasing at clipping.
+// 5 fat-type signs (Leo, Aries, Scorpio, Taurus, Libra) support
+// oscCount/spread and Eclipse spread ramp. 3 AM signs (Cancer,
+// Sagittarius, Pisces) and 4 FM signs (Gemini, Virgo, Capricorn,
+// Aquarius) skip spread — they drift via detune only.
+//
+// Envelope knobs set a base value; each sign applies its planetary
+// multiplier. Mars signs attack in ~60% of base time, Saturn in
+// ~150%. Inner-planet voices arrive first — orbital speed = sonic.
+//
+// ─── FX CHAIN (configurable — see tuning.js CHAINS) ──────
+//
+// Active default: "Zodiac"
+//   sumBus → Vibrato → Echo(CrossFade) → EQ3 → Chebyshev
+//     → [Distortion] → Freeverb → Chorus → [Phaser]
+//     → MonitorEQ → tanh soft clip → destination
+//
+// ─── ADAPTIVE VOICING ─────────────────────────────────────
+//
+// Polyphonic gain compensation: boost = 5 × log10(12 / active).
+// 12 voices = 0dB, 6 = +1.5dB, 3 = +3dB, 1 = +5.4dB.
+// Applied in toggleSign (before triggerAttack), playNatalChart,
+// and breathe. Stacks with OCTAVE_GAIN (Fletcher-Munson).
+// NOT applied in randomize (chaotic by design).
 //
 // ─── STATE MODEL ────────────────────────────────────────────
 //
@@ -55,8 +56,9 @@
 //                  1:1 to an engine parameter via KNOB_MAP. Shadow
 //                  mode temporarily overrides FX params; when Shadow
 //                  disengages, param values are restored.
-// oscIndex       — Current position in OSC_TYPES cycle. Breathe
-//                  button advances this (hidden osc type switcher).
+// oscIndex       — null | 0–7. null = per-sign planetary defaults.
+//                  Breathe cycles: null → 0 → ... → 7 → null → ...
+//                  When 0–7, all synths share that OSC_TYPES entry.
 // shadow         — Boolean. Shadow/Eclipse mode active. Ramps FX
 //                  params toward chaos targets over rampTime seconds.
 //
@@ -64,17 +66,20 @@
 //
 // Piano keyboard — Toggle individual planet voices on/off.
 // Eclipse        — Chaos mode. Ramps all FX toward extreme values,
-//                  widens osc spread, randomizes detune. Toggle off
-//                  restores saved param values.
-// Breathe        — Easter egg: cycles oscillator type across all
-//                  voices (saw → sine → tri → square). If voices
-//                  are active, releases them first, then switches.
-//                  Label always says "Breathe" — the osc change
-//                  is discoverable, not advertised.
+//                  widens osc spread (fat types only), randomizes
+//                  detune. Toggle off restores saved param values.
+// Breathe        — Cycles oscillator type: per-sign → fatsine →
+//                  amsine → ... → fatsquare → per-sign. Releases
+//                  active voices first, then switches. On per-sign,
+//                  each sign uses its planetary default.
+// Oracle dots    — Pyramid of dots below controls row. Clicking
+//                  opens the Controls veil (knobs, listen, randomize).
+//                  Discoverable, not advertised.
 // Listen pills   — Monitor EQ presets for different playback devices.
 // Knobs          — 35 direct SVG arc knobs, grouped by function.
 //                  Each maps 1:1 to an engine parameter. Double-click
 //                  resets to default. Shift+drag for fine control.
+//                  Envelope knobs apply per-sign multipliers.
 // Natal Chart    — Enter birth data, compute planetary positions via
 //                  circular-natal-horoscope-js, remap voice pitches
 //                  to zodiac-derived notes.
@@ -100,6 +105,8 @@ import {
   LISTEN_PRESETS,
   OSC_TYPES,
   OCTAVE_GAIN,
+  PLANETARY_CHARACTER,
+  SIGN_RULERS,
 } from "./tuning";
 
 // ─── Font Constants ───────────────────────────────────────────
@@ -267,6 +274,23 @@ const SIGNS = {
   },
 };
 
+// Merge planetary character into sign config — all engine code reads from this.
+const SIGN_CHARACTER = Object.fromEntries(
+  Object.entries(SIGNS).map(([name, cfg]) => [
+    name, { ...cfg, ...PLANETARY_CHARACTER[SIGN_RULERS[name]] }
+  ])
+);
+
+// Adaptive voicing: boost gain when fewer voices are active.
+// Formula: 5 × log10(12 / activeCount) dB
+// 12 voices: 0dB, 6: +1.5dB, 3: +3dB, 1: +5.4dB
+function applyAdaptiveVoicing(eng, activeCount) {
+  const boost = activeCount > 0 ? 5 * Math.log10(12 / Math.max(1, activeCount)) : 0;
+  Object.entries(eng.synths).forEach(([name, synth]) => {
+    synth.set({ volume: -9 + (OCTAVE_GAIN[SIGN_CHARACTER[name].octave] || 0) + boost });
+  });
+}
+
 const SIGN_COLORS = {
   Aquarius: ["#3f575a", "#688a8d", "#95bbbe", "#d0ecf0", "#0c0c0c"],
   Pisces: ["#657ba5", "#7495bf", "#4e5d74", "#779ebf", "#0c0c0c"],
@@ -305,29 +329,29 @@ const KNOB_MAP = {
   // Voice
   attack: {
     apply: (eng, v) => {
-      Object.values(eng.synths).forEach((s) => {
-        s.set({ envelope: { attack: v } });
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        s.set({ envelope: { attack: v * SIGN_CHARACTER[name].attackMul } });
       });
     },
   },
   decay: {
     apply: (eng, v) => {
-      Object.values(eng.synths).forEach((s) => {
-        s.set({ envelope: { decay: v } });
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        s.set({ envelope: { decay: v * SIGN_CHARACTER[name].decayMul } });
       });
     },
   },
   sustain: {
     apply: (eng, v) => {
-      Object.values(eng.synths).forEach((s) => {
-        s.set({ envelope: { sustain: v } });
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        s.set({ envelope: { sustain: Math.min(1, v * SIGN_CHARACTER[name].sustainMul) } });
       });
     },
   },
   release: {
     apply: (eng, v) => {
-      Object.values(eng.synths).forEach((s) => {
-        s.set({ envelope: { release: v } });
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        s.set({ envelope: { release: v * SIGN_CHARACTER[name].releaseMul } });
       });
     },
   },
@@ -910,22 +934,21 @@ async function createEngine() {
   const panners = {};
   const spreadTracker = {};
 
-  Object.entries(SIGNS).forEach(([name, cfg]) => {
+  Object.entries(SIGN_CHARACTER).forEach(([name, cfg]) => {
     const panner = new Tone.Panner(cfg.panBase);
     const synth = new Tone.PolySynth(Tone.Synth, {
       maxPolyphony: 2,
       voice: Tone.Synth,
       options: {
         oscillator: {
-          type: "fatsawtooth",
-          count: cfg.oscCount,
-          spread: cfg.oscSpread,
+          type: cfg.oscType,
+          ...(cfg.oscType.startsWith("fat") ? { count: cfg.oscCount, spread: cfg.oscSpread } : {}),
         },
         envelope: {
-          attack: TUNING.attack,
-          decay: TUNING.decay,
-          sustain: TUNING.sustain,
-          release: TUNING.release,
+          attack: TUNING.attack * cfg.attackMul,
+          decay: TUNING.decay * cfg.decayMul,
+          sustain: Math.min(1, TUNING.sustain * cfg.sustainMul),
+          release: TUNING.release * cfg.releaseMul,
         },
         volume: -9 + (OCTAVE_GAIN[cfg.octave] || 0),
       },
@@ -939,7 +962,7 @@ async function createEngine() {
   });
 
   const detuneTracker = Object.fromEntries(
-    Object.keys(SIGNS).map((s) => [s, SIGNS[s].detuneCents]),
+    Object.keys(SIGN_CHARACTER).map((s) => [s, SIGN_CHARACTER[s].detuneCents]),
   );
 
   // ─── Group LFOs — one per panGroup, drift all panners in that group ──
@@ -949,7 +972,7 @@ async function createEngine() {
     const lfo = new Tone.LFO({ frequency: TUNING.panLfoFreq, min: -1, max: 1 });
     lfo.amplitude.value = TUNING.panLfoAmplitude;
     lfo.start();
-    Object.entries(SIGNS).forEach(([name, cfg]) => {
+    Object.entries(SIGN_CHARACTER).forEach(([name, cfg]) => {
       if (cfg.panGroup === group) lfo.connect(panners[name].pan);
     });
     panLfos[group] = lfo;
@@ -1015,7 +1038,7 @@ export default function App() {
   const [status, setStatus] = useState("idle");
   const [activeSigns, setActiveSigns] = useState(new Set());
   const [shadow, setShadow] = useState(false);
-  const [oscIndex, setOscIndex] = useState(0);
+  const [oscIndex, setOscIndex] = useState(null);
   const [listenPreset, setListenPreset] = useState("headphones");
   const shadowIntervalsRef = useRef([]);
   const visualStateRef = useRef({});
@@ -1024,7 +1047,7 @@ export default function App() {
   const emanationRef = useRef(null);
   const shadowRef = useRef(false);
   const pendingOscTypeRef = useRef(null);
-  const activeOscTypeRef = useRef(OSC_TYPES[0]);
+  const activeOscTypeRef = useRef(null);
   const canvasCtxRef = useRef(null);
   const rafIdRef = useRef(null);
   const lastFrameTimeRef = useRef(null);
@@ -1428,10 +1451,50 @@ export default function App() {
     return _enginePromise;
   }, []);
 
+  // Apply pending osc type from breathe — used in toggleSign + playNatalChart
+  function applyPendingOscType(eng) {
+    const t = pendingOscTypeRef.current;
+    if (!t) return;
+    if (t === "per-sign") {
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        const sc = SIGN_CHARACTER[name];
+        s.set({ oscillator: { type: sc.oscType } });
+        if (sc.oscType.startsWith("fat")) {
+          s.set({ oscillator: { count: sc.oscCount, spread: sc.oscSpread } });
+          eng.spreadTracker[name] = sc.oscSpread;
+        }
+      });
+    } else {
+      const isFat = t.startsWith("fat");
+      Object.entries(eng.synths).forEach(([name, s]) => {
+        s.set({ oscillator: { type: t } });
+        if (isFat) {
+          s.set({ oscillator: { count: SIGN_CHARACTER[name].oscCount, spread: SIGN_CHARACTER[name].oscSpread } });
+          eng.spreadTracker[name] = SIGN_CHARACTER[name].oscSpread;
+        }
+      });
+    }
+    pendingOscTypeRef.current = null;
+  }
+
+  // Restore spread + detune to per-sign defaults (Eclipse exit, Breathe shadow cleanup, toggleShadow exit)
+  function restoreSpreadAndDetune(eng) {
+    Object.entries(eng.synths).forEach(([name, synth]) => {
+      const sc = SIGN_CHARACTER[name];
+      const signType = activeOscTypeRef.current ?? sc.oscType;
+      if (signType.startsWith("fat")) {
+        synth.set({ oscillator: { spread: sc.oscSpread } });
+        eng.spreadTracker[name] = sc.oscSpread;
+      }
+      synth.set({ detune: sc.detuneCents });
+      eng.detuneTracker[name] = sc.detuneCents;
+    });
+  }
+
   const toggleSign = useCallback(
     async (sign) => {
       const eng = await ensureEngine();
-      const cfg = SIGNS[sign];
+      const cfg = SIGN_CHARACTER[sign];
       if (!cfg) return;
       const note = `${cfg.note}${cfg.octave}`;
       const p = paramsRef.current || initParams();
@@ -1450,32 +1513,17 @@ export default function App() {
             vs.releaseStartLevel = vs.envelopeLevel;
             vs.stage = "release";
             vs.startTime = performance.now();
-            vs.releaseTime = release;
+            vs.releaseTime = release * cfg.releaseMul;
           }
+          applyAdaptiveVoicing(eng, next.size);
         } else {
-          // Apply pending osc type from breathe before triggering
-          if (pendingOscTypeRef.current) {
-            const t = pendingOscTypeRef.current;
-            const isFat = t.startsWith("fat");
-            Object.entries(eng.synths).forEach(([name, s]) => {
-              s.set({ oscillator: { type: t } });
-              if (isFat) {
-                s.set({
-                  oscillator: {
-                    count: SIGNS[name].oscCount,
-                    spread: SIGNS[name].oscSpread,
-                  },
-                });
-                eng.spreadTracker[name] = SIGNS[name].oscSpread;
-              }
-            });
-            pendingOscTypeRef.current = null;
-          }
+          applyPendingOscType(eng);
           if (natalMode && natalActivations[sign]) {
             eng.synths[sign].set({
               detune: natalActivations[sign].detuneCents,
             });
           }
+          applyAdaptiveVoicing(eng, next.size + 1);
           eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
           next.add(sign);
           const pal = SIGN_COLORS[sign];
@@ -1485,10 +1533,10 @@ export default function App() {
             stage: "attack",
             startTime: performance.now(),
             envelopeLevel: 0,
-            attackTime: attack * VIS_SPEED,
-            decayTime: decay * VIS_SPEED,
-            sustainLevel: sustain,
-            releaseTime: release * VIS_SPEED,
+            attackTime: attack * cfg.attackMul * VIS_SPEED,
+            decayTime: decay * cfg.decayMul * VIS_SPEED,
+            sustainLevel: Math.min(1, sustain * cfg.sustainMul),
+            releaseTime: release * cfg.releaseMul * VIS_SPEED,
             releaseStartLevel: 0,
             activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
           };
@@ -1513,9 +1561,10 @@ export default function App() {
           vs.releaseStartLevel = vs.envelopeLevel;
           vs.stage = "release";
           vs.startTime = performance.now();
-          vs.releaseTime = release * VIS_SPEED;
+          vs.releaseTime = release * SIGN_CHARACTER[sign].releaseMul * VIS_SPEED;
         }
       }
+      applyAdaptiveVoicing(eng, 0);
       setActiveSigns(new Set());
       setStatus("ready");
     }
@@ -1536,20 +1585,13 @@ export default function App() {
         lfo.frequency.rampTo(saved.panLfoFreq, rt);
         lfo.amplitude.rampTo(saved.panLfoAmplitude, rt);
       });
-      if (activeOscTypeRef.current?.startsWith("fat")) {
-        Object.entries(eng.synths).forEach(([name, synth]) => {
-          synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
-          synth.set({ detune: SIGNS[name].detuneCents });
-          eng.spreadTracker[name] = SIGNS[name].oscSpread;
-          eng.detuneTracker[name] = SIGNS[name].detuneCents;
-        });
-      }
+      restoreSpreadAndDetune(eng);
       setShadow(false);
     }
-    // Defer osc type change — voices may still be releasing
-    const next = (oscIndex + 1) % OSC_TYPES.length;
-    pendingOscTypeRef.current = OSC_TYPES[next];
-    activeOscTypeRef.current = OSC_TYPES[next];
+    // Defer osc type change — cycles null → 0 → 1 → ... → 7 → null → ...
+    const next = oscIndex === null ? 0 : (oscIndex + 1 >= OSC_TYPES.length ? null : oscIndex + 1);
+    pendingOscTypeRef.current = next === null ? "per-sign" : OSC_TYPES[next];
+    activeOscTypeRef.current = next === null ? null : OSC_TYPES[next];
     setOscIndex(next);
   }, [activeSigns, ensureEngine, oscIndex, shadow]);
 
@@ -1573,29 +1615,29 @@ export default function App() {
         lfo.amplitude.rampTo(st.panLfoAmplitude, rt);
       });
 
-      // Slow spread ramp — only for fat oscillator types
+      // Slow spread ramp — per-sign fat check (AM/FM signs skip spread)
       const intervals = [];
-      if (activeOscTypeRef.current?.startsWith("fat")) {
-        const spreadEventId = Tone.Transport.scheduleRepeat(() => {
-          let allDone = true;
-          Object.entries(eng.synths).forEach(([name, synth]) => {
-            const current = eng.spreadTracker[name];
-            if (current < st.oscSpread) {
-              allDone = false;
-              const next = Math.min(current + 4, st.oscSpread);
-              eng.spreadTracker[name] = next;
-              synth.set({ oscillator: { spread: next } });
-            }
-          });
-          if (allDone) Tone.Transport.clear(spreadEventId);
-        }, 0.2);
-        intervals.push(spreadEventId);
-      }
+      const spreadEventId = Tone.Transport.scheduleRepeat(() => {
+        let allDone = true;
+        Object.entries(eng.synths).forEach(([name, synth]) => {
+          const signType = activeOscTypeRef.current ?? SIGN_CHARACTER[name].oscType;
+          if (!signType.startsWith("fat")) return;
+          const current = eng.spreadTracker[name];
+          if (current < st.oscSpread) {
+            allDone = false;
+            const next = Math.min(current + 4, st.oscSpread);
+            eng.spreadTracker[name] = next;
+            synth.set({ oscillator: { spread: next } });
+          }
+        });
+        if (allDone) Tone.Transport.clear(spreadEventId);
+      }, 0.2);
+      intervals.push(spreadEventId);
 
       // Smooth detune drift — lerp toward random targets
       const detuneId = Tone.Transport.scheduleRepeat(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          const base = SIGNS[name]?.detuneCents || 0;
+          const base = SIGN_CHARACTER[name]?.detuneCents || 0;
           const current = eng.detuneTracker[name] ?? base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
           const next = current + (target - current) * 0.3;
@@ -1624,14 +1666,7 @@ export default function App() {
         lfo.amplitude.rampTo(saved.panLfoAmplitude, rt);
       });
 
-      if (activeOscTypeRef.current?.startsWith("fat")) {
-        Object.entries(eng.synths).forEach(([name, synth]) => {
-          synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
-          synth.set({ detune: SIGNS[name].detuneCents });
-          eng.spreadTracker[name] = SIGNS[name].oscSpread;
-          eng.detuneTracker[name] = SIGNS[name].detuneCents;
-        });
-      }
+      restoreSpreadAndDetune(eng);
     }
     setShadow((s) => !s);
   }, [shadow, ensureEngine]);
@@ -1739,24 +1774,7 @@ export default function App() {
     Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
 
     setTimeout(() => {
-      // Apply pending osc type from breathe before triggering
-      if (pendingOscTypeRef.current) {
-        const t = pendingOscTypeRef.current;
-        const isFat = t.startsWith("fat");
-        Object.entries(eng.synths).forEach(([name, s]) => {
-          s.set({ oscillator: { type: t } });
-          if (isFat) {
-            s.set({
-              oscillator: {
-                count: SIGNS[name].oscCount,
-                spread: SIGNS[name].oscSpread,
-              },
-            });
-            eng.spreadTracker[name] = SIGNS[name].oscSpread;
-          }
-        });
-        pendingOscTypeRef.current = null;
-      }
+      applyPendingOscType(eng);
 
       const p = paramsRef.current || initParams();
       const attack = p.attack;
@@ -1770,8 +1788,9 @@ export default function App() {
       const activatedSigns = KEYBOARD_ORDER.filter(
         (sign) => natalActivations[sign],
       );
+      applyAdaptiveVoicing(eng, activatedSigns.length);
       activatedSigns.forEach((sign, i) => {
-        const cfg = SIGNS[sign];
+        const cfg = SIGN_CHARACTER[sign];
         const note = `${cfg.note}${cfg.octave}`;
         eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
         eng.synths[sign].triggerAttack(note, now + i * TUNING.stagger, cfg.vel);
@@ -1784,10 +1803,10 @@ export default function App() {
           stage: "attack",
           startTime: perfNow + i * TUNING.stagger * 1000,
           envelopeLevel: 0,
-          attackTime: attack * VIS_SPEED,
-          decayTime: decay * VIS_SPEED,
-          sustainLevel: sustain,
-          releaseTime: release * VIS_SPEED,
+          attackTime: attack * cfg.attackMul * VIS_SPEED,
+          decayTime: decay * cfg.decayMul * VIS_SPEED,
+          sustainLevel: Math.min(1, sustain * cfg.sustainMul),
+          releaseTime: release * cfg.releaseMul * VIS_SPEED,
           releaseStartLevel: 0,
           activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
         };
@@ -1807,13 +1826,6 @@ export default function App() {
         ref={rootRef}
       >
         <canvas className="cel-emanation" ref={emanationRef} />
-        <div className="cel-oracle">
-          <p>.</p>
-          <p>. .</p>
-          <p>. . .</p>
-          <p>. .&nbsp; l o o k &nbsp;. .</p>
-          <p>. . . &nbsp;w i t h i n&nbsp; . . .</p>
-        </div>
         <div className="cel-keyboard">
           {KEYBOARD_ORDER.filter((_, i) => !SHARP_INDICES.has(i)).map(
             (sign) => {
@@ -1878,8 +1890,14 @@ export default function App() {
         </div>
 
         <details className="cel-veil">
-          <summary>Controls</summary>
-          <span className="cel-osc-indicator">{OSC_TYPES[oscIndex]}</span>
+          <summary className="cel-oracle">
+            <span className="cel-oracle-line">.</span>
+            <span className="cel-oracle-line">. .</span>
+            <span className="cel-oracle-line">. . .</span>
+            <span className="cel-oracle-line">. .&nbsp; l o o k &nbsp;. .</span>
+            <span className="cel-oracle-line">. . . &nbsp;w i t h i n&nbsp; . . .</span>
+          </summary>
+          <span className="cel-osc-indicator">{oscIndex === null ? "per-sign" : OSC_TYPES[oscIndex]}</span>
           <div className="cel-macros">
             {groupedKnobs.map((item) =>
               item.type === "row" ? (
@@ -2095,11 +2113,22 @@ const CSS = `
     font-size: 0.75rem;
     letter-spacing: 0.35em;
     line-height: 1.3;
-    margin-bottom: 1.8rem;
+    cursor: pointer;
+    list-style: none;
+    padding: 8px;
+    margin-bottom: 0.5rem;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
   }
 
-  .cel-oracle p {
-    margin: 0;
+  .cel-oracle::-webkit-details-marker { display: none; }
+
+  .cel-oracle:hover { opacity: 0.7; }
+
+  .cel-veil[open] > .cel-oracle { opacity: 0.2; margin-bottom: 8px; }
+
+  .cel-oracle-line {
+    display: block;
   }
 
   /* ── Piano keyboard layout ──────────────────────────── */
@@ -2599,16 +2628,6 @@ const CSS = `
     font-size: 11px;
     opacity: 0.7;
   }
-  .cel-veil > summary {
-    cursor: pointer;
-    opacity: 0.5;
-    font-size: 14px;
-    text-align: center;
-    padding: 8px;
-    margin-bottom: 12px;
-    letter-spacing: 0.08em;
-  }
-  .cel-veil[open] > summary { opacity: 0.3; margin-bottom: 8px; }
 
   @media (max-width: 600px) {
     .cel-root { padding: 8px; }
@@ -2619,6 +2638,5 @@ const CSS = `
     .cel-key-glyph { font-size: 14px; }
     .cel-listen { flex-wrap: wrap; }
     .cel-group-row { flex-direction: column; }
-    .cel-oracle input { width: 100%; }
   }
 `;
