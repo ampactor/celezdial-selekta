@@ -1088,6 +1088,7 @@ export default function App() {
   const [natalLat, setNatalLat] = useState("39.96");
   const [natalLng, setNatalLng] = useState("-82.99");
   const [natalActivations, setNatalActivations] = useState({});
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const initParams = () =>
     Object.fromEntries(
       Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]),
@@ -1147,6 +1148,35 @@ export default function App() {
     paramsRef.current = newParams;
     setParams(newParams);
   }, []);
+
+  const buildSnapshot = useCallback(() => ({
+    meta: { name: "untitled", timestamp: new Date().toISOString(), version: "v12" },
+    chain: ACTIVE_CHAIN,
+    oscType: oscIndex === null ? "per-sign" : OSC_TYPES[oscIndex],
+    signs: Object.fromEntries(SIGN_NAMES.map(s => [s, activeSigns.has(s)])),
+    knobs: { ...paramsRef.current },
+    listen: listenPreset,
+    eclipse: shadow,
+  }), [oscIndex, activeSigns, listenPreset, shadow]);
+
+  const exportSnapshot = useCallback(() => {
+    const snap = buildSnapshot();
+    const blob = new Blob([JSON.stringify(snap, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `celezdial-snapshot-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [buildSnapshot]);
+
+  const copySnapshot = useCallback(() => {
+    const snap = buildSnapshot();
+    navigator.clipboard.writeText(JSON.stringify(snap, null, 2)).then(() => {
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1200);
+    });
+  }, [buildSnapshot]);
 
   // Pre-computed format functions — stable references for React.memo
   const formatFns = useMemo(
@@ -1545,7 +1575,7 @@ export default function App() {
       setActiveSigns((prev) => {
         const next = new Set(prev);
         if (next.has(sign)) {
-          eng.synths[sign].triggerRelease(note, Tone.now());
+          eng.synths[sign].releaseAll(Tone.now());
           eng.synths[sign].set({ detune: cfg.detuneCents });
           next.delete(sign);
           const vs = visualStateRef.current[sign];
@@ -2139,13 +2169,29 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className="cel-btn cel-randomize-btn"
-            onClick={randomizeParams}
-          >
-            Randomize
-          </button>
+          <div className="cel-veil-actions">
+            <button
+              type="button"
+              className="cel-btn cel-randomize-btn"
+              onClick={randomizeParams}
+            >
+              Randomize
+            </button>
+            <button
+              type="button"
+              className="cel-btn cel-snapshot-btn"
+              onClick={exportSnapshot}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="cel-btn cel-snapshot-btn"
+              onClick={copySnapshot}
+            >
+              {copyFeedback ? "Copied!" : "Copy"}
+            </button>
+          </div>
         </details>
 
       </div>
@@ -2539,8 +2585,15 @@ const CSS = `
     color: #e0c8ff;
   }
 
-  .cel-randomize-btn {
+  .cel-veil-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
     margin: 0.8rem auto 0;
+  }
+
+  .cel-randomize-btn,
+  .cel-snapshot-btn {
     font-size: 0.75rem;
     padding: 0.4rem 1.2rem;
     opacity: 0.6;

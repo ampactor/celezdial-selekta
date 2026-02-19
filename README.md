@@ -167,11 +167,13 @@ Eight pre-wired chains — same nodes, different order, different character:
 
 **Breathe** — Cycles oscillator type: per-sign (planetary defaults) → fatsine → amsine → fattriangle → amtriangle → fmtriangle → fatsawtooth → fmsine → fatsquare → per-sign → ... On per-sign, each sign uses its ruling planet's oscillator. On uniform types, all 12 signs share one type.
 
-**Oracle** — Dot pyramid below the Eclipse/Breathe row. Clicking opens the Controls veil (knobs, listen presets, randomize). Discoverable, not advertised.
+**Oracle** — Dot pyramid, always visible. Clicking opens the Controls veil — Eclipse, Breathe, knobs, listen presets, randomize, and snapshot export are all revealed inside. Discoverable, not advertised.
 
-**Listen** — Monitor EQ presets for headphones, laptop speakers, phone, or loudspeakers.
+**Listen** — Monitor EQ presets for headphones, laptop speakers, phone, or loudspeakers. Auto-detects device type on load via `matchMedia` (phone vs laptop vs headphones default).
 
 **Randomize** — Throws the knobs.
+
+**Snapshot** — Save downloads a `.json` file capturing the full sound state (all 35 knob values, active signs, chain, osc type, listen preset, eclipse state). Copy puts the same JSON on the clipboard. Enough to recreate the sound in another Tone.js project.
 
 ## Natal Chart
 
@@ -185,7 +187,7 @@ Partial data is fine:
 - **Date + time** — planets + Ascendant (Ascendant accuracy improves with location)
 - **All four fields** — fully accurate positions
 
-Manual key exploration is always available — toggling keys doesn't interfere with natal chart flow.
+Natal chord fires simultaneously (stagger 0) and rings until manually stopped — ADSR envelope sustains with no auto-cutoff. Single "Compute & Play" button. Manual key exploration is always available — toggling keys doesn't interfere with the natal chord.
 
 ## Setup
 
@@ -196,7 +198,7 @@ npm start
 
 ## Tuning
 
-All sound-shaping numbers live in `src/tuning.js`: TUNING defaults, SHADOW chaos targets, KNOB_DEFS, KNOB_GROUPS, LISTEN_PRESETS, CHAINS, OSC_TYPES, COUSTO_DETUNE, OCTAVE_GAIN, PLANETARY_CHARACTER, SIGN_RULERS. Change a value, hear the difference.
+All sound-shaping numbers live in `src/tuning.js`: TUNING, OSC_TYPES, SHADOW, KNOB_DEFS, KNOB_GROUPS, LISTEN_PRESETS, CHAINS, ACTIVE_CHAIN, ZODIAC_NOTES, OCTAVE_GAIN, COUSTO_DETUNE, SIGN_RULERS, PLANETARY_CHARACTER. Change a value, hear the difference. Alternative tuning profiles in `src/presets/` (deep-space-oracle, glass-meridian, tape-seance, harmonic-furnace, zodiac) are drop-in replacements for tuning.js.
 
 Engine + UI + visuals live in `src/App.js`.
 
