@@ -519,16 +519,21 @@ const Knob = React.memo(function Knob({
 
 // ─── Audio Engine Factory ────────────────────────────────────
 
+let _enginePromise = null; // creation lock — prevents duplicate contexts
+
 async function createEngine() {
-  Tone.setContext(
-    new Tone.Context({
-      latencyHint: "playback",
-      sampleRate: TUNING.sampleRate,
-      lookAhead: 0.2,
-      updateInterval: 0.1,
-    }),
-  );
+  const ctx = new Tone.Context({
+    latencyHint: "playback",
+    sampleRate: TUNING.sampleRate,
+    lookAhead: 0.2,
+    updateInterval: 0.1,
+  });
+  Tone.setContext(ctx);
   await Tone.start();
+  // Belt-and-suspenders: wait for the raw AudioContext to actually resume
+  if (ctx.rawContext.state !== "running") {
+    await ctx.rawContext.resume();
+  }
 
   // ─── FX chain (constructed before synths so panners have a target) ───
 
@@ -1191,16 +1196,19 @@ export default function App() {
   }, []);
 
   const ensureEngine = useCallback(async () => {
-    if (!engineRef.current) {
-      const eng = await createEngine();
-      // Apply all KNOB_DEFS defaults (may differ from TUNING construction values)
-      for (const [name, def] of Object.entries(KNOB_DEFS)) {
-        KNOB_MAP[name]?.apply(eng, def.default);
-      }
-      engineRef.current = eng;
-      setStatus("ready");
+    if (engineRef.current) return engineRef.current;
+    // Serialize creation — all concurrent callers share one promise
+    if (!_enginePromise) {
+      _enginePromise = createEngine().then((eng) => {
+        for (const [name, def] of Object.entries(KNOB_DEFS)) {
+          KNOB_MAP[name]?.apply(eng, def.default);
+        }
+        engineRef.current = eng;
+        setStatus("ready");
+        return eng;
+      });
     }
-    return engineRef.current;
+    return _enginePromise;
   }, []);
 
   const toggleSign = useCallback(
