@@ -534,7 +534,7 @@ async function createEngine() {
 
   const chebyshev = new Tone.Chebyshev(TUNING.chebyOrder);
   chebyshev.wet.value = TUNING.chebyWet;
-  chebyshev.oversample = "4x";
+  chebyshev.oversample = "2x";
 
   const eq3 = new Tone.EQ3({
     high: TUNING.eqHigh,
@@ -640,13 +640,13 @@ async function createEngine() {
 
   const distortion = new Tone.Distortion({
     distortion: TUNING.distortion,
-    oversample: "4x",
+    oversample: "2x",
   });
   distortion.wet.value = TUNING.distortionWet;
 
   // tanh soft clip — preserves Freeverb resonant peaks that Limiter(-1) killed
   const softClip = new Tone.WaveShaper((val) => Math.tanh(val), 4096);
-  softClip.oversample = "4x";
+  softClip.oversample = "none";
 
   // Summing bus — all panners feed here so voices intermodulate through Chebyshev
   const sumBus = new Tone.Gain(1);
@@ -772,6 +772,10 @@ async function createEngine() {
     spreadTracker[name] = cfg.oscSpread;
   });
 
+  const detuneTracker = Object.fromEntries(
+    Object.keys(SIGNS).map((s) => [s, SIGNS[s].detuneCents])
+  );
+
   // ─── Group LFOs — one per panGroup, drift all panners in that group ──
 
   const panLfos = {};
@@ -790,6 +794,7 @@ async function createEngine() {
     panners,
     panLfos,
     spreadTracker,
+    detuneTracker,
     setBypass,
     fx: {
       reverb,
@@ -871,14 +876,27 @@ export default function App() {
   const initParams = () =>
     Object.fromEntries(Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]));
   const [params, setParams] = useState(initParams);
-  const paramsRef = useRef(null);
+  const renderThrottleRef = useRef(0);
+  const trailingRenderRef = useRef(null);
+  const gradientsRef = useRef([]);
+  const paramsRef = useRef(initParams());
 
   const setParam = useCallback((name, value) => {
-    setParams((prev) => {
-      const eng = engineRef.current;
-      if (eng) KNOB_MAP[name]?.apply(eng, value);
-      return { ...prev, [name]: value };
-    });
+    const p = paramsRef.current;
+    p[name] = value;
+    const eng = engineRef.current;
+    if (eng) KNOB_MAP[name]?.apply(eng, value);
+
+    clearTimeout(trailingRenderRef.current);
+    const now = performance.now();
+    if (now - renderThrottleRef.current > 50) {
+      renderThrottleRef.current = now;
+      setParams({ ...p });
+    } else {
+      trailingRenderRef.current = setTimeout(() => {
+        setParams({ ...paramsRef.current });
+      }, 60);
+    }
   }, []);
 
   // Stable callbacks — one per param, never re-created
@@ -901,6 +919,7 @@ export default function App() {
       newParams[name] = value;
       if (eng) KNOB_MAP[name]?.apply(eng, value);
     }
+    paramsRef.current = newParams;
     setParams(newParams);
   }, []);
 
@@ -959,9 +978,6 @@ export default function App() {
   useEffect(() => {
     shadowRef.current = shadow;
   }, [shadow]);
-  useEffect(() => {
-    paramsRef.current = params;
-  }, [params]);
 
   // ─── Position cache (eliminates getBoundingClientRect in rAF) ──
   useEffect(() => {
@@ -1007,14 +1023,17 @@ export default function App() {
     const [darkR, darkG, darkB] = hexToRgb(COLOR_OFF);
 
     const tick = (now) => {
-      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = now;
+      if (now - lastFrameTimeRef.current < 33) {
+        requestAnimationFrame(tick);
+        return;
+      }
       lastFrameTimeRef.current = now;
 
       let blendR = 0,
         blendG = 0,
         blendB = 0,
         totalWeight = 0;
-      const gradients = [];
+      const gradients = gradientsRef.current; gradients.length = 0;
       let hasActive = false;
 
       for (const sign in visualStateRef.current) {
@@ -1292,6 +1311,7 @@ export default function App() {
           synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
           synth.set({ detune: SIGNS[name].detuneCents });
           eng.spreadTracker[name] = SIGNS[name].oscSpread;
+          eng.detuneTracker[name] = SIGNS[name].detuneCents;
         });
       }
       setShadow(false);
@@ -1332,13 +1352,13 @@ export default function App() {
             const current = eng.spreadTracker[name];
             if (current < st.oscSpread) {
               allDone = false;
-              const next = Math.min(current + 1, st.oscSpread);
+              const next = Math.min(current + 4, st.oscSpread);
               eng.spreadTracker[name] = next;
               synth.set({ oscillator: { spread: next } });
             }
           });
           if (allDone) Tone.Transport.clear(spreadEventId);
-        }, 0.06);
+        }, 0.2);
         intervals.push(spreadEventId);
       }
 
@@ -1346,9 +1366,10 @@ export default function App() {
       const detuneId = Tone.Transport.scheduleRepeat(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
           const base = SIGNS[name]?.detuneCents || 0;
-          const current = synth.get().detune || base;
+          const current = eng.detuneTracker[name] ?? base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
           const next = current + (target - current) * 0.3;
+          eng.detuneTracker[name] = next;
           synth.set({ detune: next });
         });
       }, 1.2);
@@ -1378,6 +1399,7 @@ export default function App() {
           synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
           synth.set({ detune: SIGNS[name].detuneCents });
           eng.spreadTracker[name] = SIGNS[name].oscSpread;
+          eng.detuneTracker[name] = SIGNS[name].detuneCents;
         });
       }
     }
@@ -2091,10 +2113,14 @@ const CSS = `
   }
 
   .cel-osc-indicator {
+    display: block;
+    text-align: center;
     font-size: 0.6rem;
     font-family: ${FONTS.mono};
-    color: #504868;
-    letter-spacing: 0.04em;
+    color: rgba(180, 140, 255, 0.35);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
   }
 
   /* ── Listen preset pills ─────────────────────────────── */
