@@ -3,26 +3,13 @@
 // Open this file, change numbers, save, hot-reload hears the diff.
 //
 // Exports:
-//   TUNING         FX parameter defaults (what m=0.5 produces)
+//   TUNING         FX parameter defaults
 //   SHADOW         Eclipse mode chaos targets
-//   MACROS         Macro knob definitions: labels, defaults, curves
+//   KNOB_DEFS      Per-knob metadata (label, group, min, max, scale, unit)
+//   KNOB_GROUPS    Group ordering for UI layout
 //   LISTEN_PRESETS Monitor EQ presets for different playback devices
 //   CHAINS         FX chain orderings (declarative node arrays)
 //   ACTIVE_CHAIN   Which chain config to wire on engine init
-//
-// ─── HOW MACROS WORK ──────────────────────────────────────────
-//
-// Each macro knob is 0–1. At m=0.5, every param equals its TUNING
-// default. Curves map m → param value using these formats:
-//
-//   Array format (resolved to functions at import time):
-//     ["splitLog",    min, mid, max]  — log interpolation, 3-point anchor
-//     ["splitLinear", min, mid, max]  — linear interpolation, 3-point anchor
-//     ["dormantLinear", base, max]    — holds base for m<=0.5, ramps m>0.5
-//     ["dormantLog",   base, max]     — holds base for m<=0.5, log ramp m>0.5
-//
-//   Inline functions for custom curves:
-//     (m) => ...  — piecewise, step, or any JS expression
 //
 // ─── HOW CHAINS WORK ─────────────────────────────────────────
 //
@@ -52,65 +39,65 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── FX Parameter Defaults ───────────────────────────────────
-// These are the values each param takes when its macro knob is at 0.5.
-// Changing a value here changes the "center point" of that macro.
+// Default FX parameter values. These initialize the audio engine.
+// KNOB_DEFS.default references these — single source of truth.
 export const TUNING = {
   sampleRate: 16000,
 
   // ── Envelope (Bloom macro) ──
   // ADSR shape for all PolySynth voices.
-  attack: 2, // seconds — slow pad attack
-  decay: 1.5, // seconds — long tail into sustain
-  sustain: 0.4, // 0–1 level — quiet sustain for pad character
-  release: 2.4, // seconds — long release for wash
+  attack: 1.5, // seconds — gradual voice emergence
+  decay: 3.0, // seconds — long bloom into sustain
+  sustain: 0.35, // 0–1 level — each planet stays audible
+  release: 5.0, // seconds — voices fade into reverb tail
 
   // ── Chebyshev saturation (Grit macro) ──
   // Polynomial waveshaper on the summed polyphonic signal.
   // Order N generates Nth harmonic. Intermodulation between
   // voices creates FM-like sum/difference tones.
   chebyOrder: 3, // harmonic order (1=clean, 11=harsh)
-  chebyWet: 0.5, // 0–1 dry/wet blend (1.0 = full saturation)
+  chebyWet: 0.5, // 0–1 dry/wet blend (half = body without harshness)
 
   // ── Tape EQ (Tone macro) ──
   // 3-band EQ simulating tape head frequency response.
   // Shapes the saturated signal before time-domain effects.
-  eqHigh: -13, // dB — high shelf (negative = tape rolloff)
-  eqMid: 3, // dB — mid band
-  eqLow: 3, // dB — low shelf
+  eqHigh: -6, // dB — high shelf (warm silk rolloff)
+  eqMid: 2, // dB — gentle mid presence
+  eqLow: 4, // dB — full bottom end
   eqHighFreq: 3000, // Hz — high band crossover frequency
 
   // ── VHS wow / vibrato (Drift macro) ──
   // Slow LFO pitch modulation on the full mix.
   // Low rate + moderate depth = seasick drift, not chorus.
-  vibratoFreq: 0.25, // Hz — LFO rate (0.25 = 4 second cycle)
-  vibratoDepth: 0.28, // 0–1 — pitch deviation amount
-  vibratoWet: 0.4, // 0–1 — dry/wet blend
+  vibratoFreq: 0.12, // Hz — LFO rate (0.12 = ~8 second cycle)
+  vibratoDepth: 0.22, // 0–1 — gentle pitch deviation
+  vibratoWet: 0.6, // 0–1 — present but blended
 
   // ── Echo / delay cascade (Echo macro) ──
   // Hand-wired delay with feedback path: delay → filter → tanh sat → gain → delay.
   // Each repeat gets progressively darker and warmer (tape delay character).
-  delayTime: 0.6, // seconds — delay tap time
-  delayFeedback: 0.48, // 0–1 — feedback gain (MUST stay < 1/echoSatDrive)
-  delayWet: 0.3, // 0–1 — crossfade position (0=dry, 1=wet)
+  delayTime: 0.65, // seconds — spacious echo timing
+  delayFeedback: 0.42, // 0–1 — 3-4 clean echoes then silence
+  delayWet: 0.28, // 0–1 — echo adds depth without dominating
 
   // ── Algorithmic reverb (Aether macro) ──
   // Freeverb — parallel comb filters + series allpass.
   // Comb-filter resonances interact with Chebyshev harmonics
   // to produce metallic shimmer. NOT convolution.
-  reverbRoom: 0.85, // 0–1 — room size (0.95 = huge hall)
-  reverbDamp: 1500, // Hz — comb filter cutoff (lower = darker)
-  reverbWet: 0.5, // 0–1 — dry/wet blend
+  reverbRoom: 0.9, // 0–1 — large hall (enveloping, not formless)
+  reverbDamp: 1800, // Hz — brighter dampening for comb shimmer
+  reverbWet: 0.42, // 0–1 — reverb is the space, voices still lead
 
   // ── Damp sweep (Aether macro) ──
   // Sinusoidal LFO modulating reverb dampening frequency.
   // Sweeps comb filter cutoffs for evolving resonance morphing.
-  dampSweepRate: 0.08, // Hz — sweep speed (0 = static)
-  dampSweepDepth: 0.2, // 0–1 — modulation depth (0 = off)
+  dampSweepRate: 0.05, // Hz — ~20s cycle, imperceptible evolution
+  dampSweepDepth: 0.12, // 0–1 — subtle breath (0 = off)
 
   // ── Per-voice panning LFOs (Aether macro) ──
   // One LFO per pan group (A/B/C/D), drifts stereo position.
-  panLfoFreq: 0.05, // Hz — drift speed
-  panLfoAmplitude: 0.12, // 0–1 — drift width
+  panLfoFreq: 0.04, // Hz — ~25s cycle, space feels alive
+  panLfoAmplitude: 0.18, // 0–1 — wider stereo field
 
   // ── Monitor EQ crossover frequencies ──
   // Fixed crossover points for the output EQ (listen presets).
@@ -124,27 +111,48 @@ export const TUNING = {
   // ── Phaser (Grit macro, dormant below 0.5) ──
   // Sweeping allpass filters create moving comb-filter interference.
   phaserFreq: 0.3, // Hz — sweep rate
-  phaserOctaves: 4, // octave range of sweep
-  phaserBase: 430, // Hz — base frequency of sweep
-  phaserQ: 6, // resonance / feedback amount
-  phaserWet: 0.1, // 0–1 — starts bypassed
+  phaserOctaves: 3, // octave range of sweep
+  phaserBase: 350, // Hz — base frequency of sweep
+  phaserQ: 8, // resonance / feedback amount
+  phaserWet: 0.0, // 0–1 — starts bypassed
 
   // ── Echo feedback loop filter ──
   // Lowpass in the feedback path — darkens each repeat.
-  echoFilterFreq: 4000, // Hz — filter cutoff
+  echoFilterFreq: 3000, // Hz — dark repeats, tape delay character
 
   // ── Distortion (Grit macro, dormant below 0.5) ──
   // Waveshaping saturator that stacks with Chebyshev.
-  distortion: 0.4, // 0–1 — drive amount
-  distortionWet: 0.1, // 0–1 — starts bypassed
+  distortion: 0.35, // 0–1 — drive amount
+  distortionWet: 0.0, // 0–1 — starts bypassed
+
+  // ── Chorus ──
+  chorusFreq: 0.8,       // Hz — modulation rate
+  chorusDelay: 12,        // ms — chorus voice delay spread
+  chorusDepth: 0.6,       // 0-1 — depth of delay modulation
+  chorusWet: 0.0,         // 0-1 — dry/wet blend (starts off)
 
   // ── Echo feedback safety ──
   // The echo loop has: delay → filter → tanh(v * drive) → gain(feedback) → delay
   // Loop gain = feedback * drive. MUST be < 1 or small signals amplify forever.
-  // At defaults: 0.68 * 1.0 = 0.68. Safe.
+  // At defaults: 0.42 * 0.6 = 0.252. Safe.
   echoSatDrive: 0.6, // tanh drive factor — keep <= 1.0
   echoInputGain: 0.7, // pre-delay attenuator — safety margin for hot polyphonic sum
 };
+
+// ─── Oscillator Types ────────────────────────────────────────
+// Cycled by Breathe. Fat variants support count/spread (Eclipse ramp).
+// AM/FM variants create amplitude/frequency modulation between carrier
+// and modulator — different harmonic character.
+export const OSC_TYPES = [
+  "fatsawtooth",   // rich harmonics, spread detuning
+  "amsine",        // bell-like AM, clean
+  "fmtriangle",    // warm FM undertones
+  "fatsine",       // pure + spread detuning
+  "amtriangle",    // warm AM modulation
+  "fmsine",        // metallic DX7-style FM
+  "fattriangle",   // warm + spread detuning
+  "fatsquare",     // hollow + spread detuning
+];
 
 // ─── Shadow / Eclipse Mode Chaos Targets ─────────────────────
 // When Eclipse activates, FX params ramp toward these values over
@@ -164,145 +172,86 @@ export const SHADOW = {
   rampTime: 16, // seconds to reach chaos targets
 };
 
-// ─── Macro Definitions ───────────────────────────────────────
-// 6 macro knobs, each 0–1 normalized. m=0.5 = TUNING defaults.
-//
-// Curve format:
-//   ["splitLog", min, mid, max]     — logarithmic 3-point: m=0→min, m=0.5→mid, m=1→max
-//   ["splitLinear", min, mid, max]  — linear 3-point: same anchors, linear interp
-//   ["dormantLinear", base, max]    — base for m<=0.5, linear ramp to max for m>0.5
-//   ["dormantLog", base, max]       — base for m<=0.5, log ramp to max for m>0.5
-//   (m) => expression               — custom: anything the above can't express
-//
-// To tune: change the numbers in the arrays. The curve type stays the same.
-// Example: reverbMix: ["splitLinear", 0.05, 0.35, 0.5]
-//          means m=0 → 5% wet, m=0.5 → 35% wet, m=1 → 50% wet.
-//          Want more reverb at max? Change 0.5 to 0.7.
-
-export const MACROS = {
-  // ── Bloom — envelope shape (attack/decay/sustain/release) ──
-  // Controls how voices fade in and out. Low = percussive. High = glacial.
-  bloom: {
-    label: "Bloom",
-    default: 0.5,
-    params: {
-      attack: ["splitLog", 0.01, 1.5, 8.0], // 10ms → 1.5s → 8s
-      decay: ["splitLog", 0.1, 3.5, 8.0], // 100ms → 3.5s → 8s
-      sustain: ["splitLinear", 0.0, 0.2, 0.8], // silent → 20% → 80%
-      release: ["splitLog", 0.1, 5.0, 10.0], // 100ms → 5s → 10s
-    },
-  },
-
-  // ── Aether — reverb, space, stereo field ──
-  // Controls room size, damping, pan drift, and chorus shimmer.
-  // Low = dry/mono. Mid = cathedral. High = infinite space + shimmer.
-  aether: {
-    label: "Aether",
-    default: 0.5,
-    params: {
-      reverbRoom: ["splitLinear", 0.3, 0.95, 1.0], // small → huge → infinite
-      reverbDamp: ["splitLog", 8000, 1500, 600], // bright → dark → very dark
-      reverbMix: ["splitLinear", 0.05, 0.35, 0.8], // 5% → 35% → 80% wet
-      dampSweepRate: ["splitLog", 0.01, 0.08, 0.5], // near-static → slow → fast
-      dampSweepDepth: ["splitLinear", 0.0, 0.15, 1.0], // off → subtle → full
-      panDrift: ["splitLog", 0.01, 0.07, 0.5], // near-static → slow → fast
-      panWidth: ["splitLinear", 0.0, 0.2, 1.0], // mono → narrow → full stereo
-      aetherShimmer: ["dormantLinear", 0.0, 0.6], // off until 0.5, then chorus
-    },
-  },
-
-  // ── Echo — delay time, feedback, mix, filter ──
-  // Controls the tape-delay character. Low = short slapback.
-  // Mid = classic delay. High = long washed-out repeats.
-  echo: {
-    label: "Echo",
-    default: 0.5,
-    params: {
-      echoTime: ["splitLog", 0.1, 0.8, 2.5], // 50ms → 600ms → 1.5s
-      echoFeedback: (
-        m, // piecewise: ramps to 0.68, then gently past
-      ) =>
-        m <= 0.5 ? (m / 0.5) * 0.68 : 0.68 + 0.2 * Math.pow((m - 0.5) / 0.5, 1), // max ~0.88 (safe with echoSatDrive=1.0)
-      echoMix: (m) => m, // linear identity: 0→0, 1→1
-      echoFilterFreq: ["splitLog", 8000, 4000, 1800], // bright → warm → dark repeats
-    },
-  },
-
-  // ── Drift — vibrato / VHS wow ──
-  // Controls pitch modulation speed, depth, and mix.
-  // Low = static. Mid = gentle drift. High = seasick tape warble.
-  drift: {
-    label: "Drift",
-    default: 0.5,
-    params: {
-      wobbleRate: ["splitLog", 0.01, 0.25, 1.0], // near-static → 4s cycle → fast
-      wobbleDepth: ["splitLinear", 0.0, 0.32, 1.0], // none → moderate → extreme
-      wobbleMix: ["splitLinear", 0.0, 0.8, 1.0], // dry → mostly wet → full
-    },
-  },
-
-  // ── Grit — saturation, distortion, phaser ──
-  // Controls harmonic density. Low = clean. Mid = warm saturation.
-  // High = stacked distortion + phaser interference.
-  // Distortion and phaser are "dormant" below 0.5 (off), activate above.
-  grit: {
-    label: "Grit",
-    default: 0.5,
-    params: {
-      gritDrive: (m) => (m <= 0.5 ? m / 0.5 : 1.0), // ramp 0→1 in first half, clamp at 1
-      chebyOrder: (
-        m, // stepped: 1 → 3 → 5 → 7 → 9 → 11
-      ) =>
-        m < 0.17
-          ? 1
-          : m < 0.5
-            ? 3
-            : m < 0.62
-              ? 5
-              : m < 0.74
-                ? 7
-                : m < 0.87
-                  ? 9
-                  : 11,
-      satDrive: ["splitLinear", 0.0, 0.4, 1.0], // none → moderate → full
-      satMix: ["dormantLinear", 0.0, 1.0], // off until 0.5, then ramp
-      phaserFreq: (
-        m, // dormant + log ramp
-      ) => (m <= 0.5 ? 0.3 : 0.3 * Math.pow(8.0 / 0.3, (m - 0.5) / 0.5)),
-      phaserOctaves: (
-        m, // dormant + stepped
-      ) => (m <= 0.5 ? 3 : Math.round(3 + 3 * ((m - 0.5) / 0.5))),
-      phaserBase: (
-        m, // dormant + log sweep down
-      ) => (m <= 0.5 ? 350 : 350 * Math.pow(100 / 350, (m - 0.5) / 0.5)),
-      phaserQ: () => 10, // constant
-      phaserMix: [0.0, 0.2, 0.6], // off until 0.5, then ramp
-    },
-  },
-
-  // ── Tone — 3-band EQ character ──
-  // Controls the spectral tilt. Low = bright/thin. Mid = tape warmth.
-  // High = dark/thick.
-  tone: {
-    label: "Tone",
-    default: 0.5,
-    params: {
-      eqHigh: ["splitLinear", 12, -6, -24], // +12dB bright → -6dB tape → -24dB dark
-      eqMid: ["splitLinear", -12, 3, 12], // scooped → warm → forward
-      eqLow: ["splitLinear", -12, 3, 12], // thin → full → boomy
-    },
-  },
+// ─── Knob Definitions ────────────────────────────────────────
+// 35 direct-control knobs, one per audio parameter.
+// Each knob maps directly to a single Tone.js param — no macros.
+// scale: "linear" | "log" | "step"
+// unit: "s" | "ms" | "dB" | "Hz" | "%" | ""
+// default: references TUNING.x — single source of truth.
+export const KNOB_DEFS = {
+  // ── Envelope ──
+  attack:          { label: "ATK",  group: "envelope",   min: 0.01,  max: 10,    default: TUNING.attack,          scale: "log",    unit: "s" },
+  decay:           { label: "DEC",  group: "envelope",   min: 0.1,   max: 10,    default: TUNING.decay,           scale: "log",    unit: "s" },
+  sustain:         { label: "SUS",  group: "envelope",   min: 0,     max: 1,     default: TUNING.sustain,         scale: "linear", unit: "%" },
+  release:         { label: "REL",  group: "envelope",   min: 0.1,   max: 14,    default: TUNING.release,         scale: "log",    unit: "s" },
+  // ── EQ ──
+  eqLow:           { label: "LOW",  group: "eq",         min: -20,   max: 20,    default: TUNING.eqLow,           scale: "linear", unit: "dB" },
+  eqMid:           { label: "MID",  group: "eq",         min: -20,   max: 20,    default: TUNING.eqMid,           scale: "linear", unit: "dB" },
+  eqHigh:          { label: "HIGH", group: "eq",         min: -20,   max: 20,    default: TUNING.eqHigh,          scale: "linear", unit: "dB" },
+  eqHighFreq:      { label: "HI x", group: "eq",         min: 1000,  max: 8000,  default: TUNING.eqHighFreq,      scale: "log",    unit: "Hz" },
+  // ── Chebyshev ──
+  chebyOrder:      { label: "ORD",  group: "chebyshev",  min: 1,     max: 11,    default: TUNING.chebyOrder,      scale: "step",   unit: "" },
+  chebyWet:        { label: "MIX",  group: "chebyshev",  min: 0,     max: 1,     default: TUNING.chebyWet,        scale: "linear", unit: "%" },
+  // ── Distortion ──
+  distortion:      { label: "DRIV", group: "distortion", min: 0,     max: 1,     default: TUNING.distortion,      scale: "linear", unit: "%" },
+  distortionWet:   { label: "MIX",  group: "distortion", min: 0,     max: 1,     default: TUNING.distortionWet,   scale: "linear", unit: "%" },
+  // ── Vibrato ──
+  vibratoFreq:     { label: "RATE", group: "vibrato",    min: 0.01,  max: 5,     default: TUNING.vibratoFreq,     scale: "log",    unit: "Hz" },
+  vibratoDepth:    { label: "DPTH", group: "vibrato",    min: 0,     max: 1,     default: TUNING.vibratoDepth,    scale: "linear", unit: "%" },
+  vibratoWet:      { label: "MIX",  group: "vibrato",    min: 0,     max: 1,     default: TUNING.vibratoWet,      scale: "linear", unit: "%" },
+  // ── Echo ──
+  delayTime:       { label: "TIME", group: "echo",       min: 0.05,  max: 2,     default: TUNING.delayTime,       scale: "log",    unit: "s" },
+  delayFeedback:   { label: "FDBK", group: "echo",       min: 0,     max: 0.95,  default: TUNING.delayFeedback,   scale: "linear", unit: "%" },
+  delayWet:        { label: "MIX",  group: "echo",       min: 0,     max: 1,     default: TUNING.delayWet,        scale: "linear", unit: "%" },
+  echoFilterFreq:  { label: "FILT", group: "echo",       min: 500,   max: 8000,  default: TUNING.echoFilterFreq,  scale: "log",    unit: "Hz" },
+  // ── Reverb ──
+  reverbRoom:      { label: "ROOM", group: "reverb",     min: 0,     max: 1,     default: TUNING.reverbRoom,      scale: "linear", unit: "%" },
+  reverbDamp:      { label: "DAMP", group: "reverb",     min: 200,   max: 8000,  default: TUNING.reverbDamp,      scale: "log",    unit: "Hz" },
+  reverbWet:       { label: "MIX",  group: "reverb",     min: 0,     max: 1,     default: TUNING.reverbWet,       scale: "linear", unit: "%" },
+  dampSweepRate:   { label: "MOD",  group: "reverb",     min: 0.01,  max: 2,     default: TUNING.dampSweepRate,   scale: "log",    unit: "Hz" },
+  dampSweepDepth:  { label: "AMT",  group: "reverb",     min: 0,     max: 1,     default: TUNING.dampSweepDepth,  scale: "linear", unit: "%" },
+  // ── Chorus ──
+  chorusFreq:      { label: "RATE", group: "chorus",     min: 0.1,   max: 10,    default: TUNING.chorusFreq,      scale: "log",    unit: "Hz" },
+  chorusDelay:     { label: "DLY",  group: "chorus",     min: 1,     max: 30,    default: TUNING.chorusDelay,     scale: "linear", unit: "ms" },
+  chorusDepth:     { label: "DPTH", group: "chorus",     min: 0,     max: 1,     default: TUNING.chorusDepth,     scale: "linear", unit: "%" },
+  chorusWet:       { label: "MIX",  group: "chorus",     min: 0,     max: 1,     default: TUNING.chorusWet,       scale: "linear", unit: "%" },
+  // ── Phaser ──
+  phaserFreq:      { label: "RATE", group: "phaser",     min: 0.05,  max: 10,    default: TUNING.phaserFreq,      scale: "log",    unit: "Hz" },
+  phaserOctaves:   { label: "OCT",  group: "phaser",     min: 1,     max: 8,     default: TUNING.phaserOctaves,   scale: "step",   unit: "" },
+  phaserBase:      { label: "BASE", group: "phaser",     min: 50,    max: 2000,  default: TUNING.phaserBase,      scale: "log",    unit: "Hz" },
+  phaserQ:         { label: "Q",    group: "phaser",     min: 0.5,   max: 20,    default: TUNING.phaserQ,         scale: "log",    unit: "" },
+  phaserWet:       { label: "MIX",  group: "phaser",     min: 0,     max: 1,     default: TUNING.phaserWet,       scale: "linear", unit: "%" },
+  // ── Pan ──
+  panLfoFreq:      { label: "RATE", group: "pan",        min: 0.01,  max: 2,     default: TUNING.panLfoFreq,      scale: "log",    unit: "Hz" },
+  panLfoAmplitude: { label: "WDTH", group: "pan",        min: 0,     max: 1,     default: TUNING.panLfoAmplitude, scale: "linear", unit: "%" },
 };
+
+// ─── Knob Group Ordering ─────────────────────────────────────
+// Zodiac chain signal flow: envelope → vibrato → ECHO → eq3 → cheby → [dist] → reverb → chorus → [phaser]
+// Pan is per-voice pre-chain, pairs naturally with vibrato.
+// Groups sharing a row number render side-by-side.
+export const KNOB_GROUPS = [
+  { key: "envelope",   label: "Envelope" },
+  { key: "vibrato",    label: "Vibrato",    row: 1 },
+  { key: "pan",        label: "Pan",        row: 1 },
+  { key: "echo",       label: "Echo" },
+  { key: "eq",         label: "EQ" },
+  { key: "chebyshev",  label: "Chebyshev",  row: 2 },
+  { key: "distortion", label: "Distortion", row: 2 },
+  { key: "reverb",     label: "Reverb" },
+  { key: "chorus",     label: "Chorus" },
+  { key: "phaser",     label: "Phaser" },
+];
 
 // ─── Listen Presets ──────────────────────────────────────────
 // Monitor EQ compensation for different playback devices.
 // Values are dB gain for low/mid/high bands.
 // Crossover frequencies set in TUNING (monitorLowFreq, monitorHighFreq).
 export const LISTEN_PRESETS = {
-  headphones: { low: -2, mid: 0, high: 1, label: "HP" },
-  laptop: { low: 6, mid: 2, high: 3, label: "Laptop" },
-  phone: { low: 4, mid: 3, high: 2, label: "Phone" },
-  loudspeaker: { low: 3, mid: -2, high: 0, label: "Speaker" },
+  headphones: { low: -2, mid: 0, high: 1, label: "🎧 HP" },
+  laptop: { low: 6, mid: 2, high: 3, label: "💻 Laptop" },
+  phone: { low: 4, mid: 3, high: 2, label: "📱 Phone" },
+  loudspeaker: { low: 3, mid: -2, high: 0, label: "🔊 Big System" },
 };
 
 // ─── FX Chain Configs ────────────────────────────────────────

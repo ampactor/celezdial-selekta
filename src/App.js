@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// CELESTIAL PAD v8 — Soft Clip · SVG Knobs · Full Control
+// CELESTIAL PAD v12 — Soft Clip · SVG Knobs · Direct Control
 //
 // ─── ARCHITECTURE OVERVIEW ──────────────────────────────────
 //
@@ -51,10 +51,10 @@
 // engineRef      — Tone.js audio graph, created on first interaction.
 //                  Null until user clicks (browser autoplay policy).
 // activePlanets  — Set<string> of currently sounding planet names.
-// macros         — Object of 6 macro knob positions (0–1 each).
-//                  Each macro drives multiple params via MACRO_DEFS.
-//                  Shadow mode temporarily overrides FX params; when
-//                  Shadow disengages, macro-derived values are restored.
+// params         — Object of 35 direct knob values. Each knob maps
+//                  1:1 to an engine parameter via KNOB_MAP. Shadow
+//                  mode temporarily overrides FX params; when Shadow
+//                  disengages, param values are restored.
 // oscIndex       — Current position in OSC_TYPES cycle. Breathe
 //                  button advances this (hidden osc type switcher).
 // shadow         — Boolean. Shadow/Eclipse mode active. Ramps FX
@@ -65,38 +65,35 @@
 // Piano keyboard — Toggle individual planet voices on/off.
 // Eclipse        — Chaos mode. Ramps all FX toward extreme values,
 //                  widens osc spread, randomizes detune. Toggle off
-//                  restores macro-derived values.
+//                  restores saved param values.
 // Breathe        — Easter egg: cycles oscillator type across all
 //                  voices (saw → sine → tri → square). If voices
 //                  are active, releases them first, then switches.
 //                  Label always says "Breathe" — the osc change
 //                  is discoverable, not advertised.
 // Listen pills   — Monitor EQ presets for different playback devices.
-// Macros         — 6 SVG arc macro knobs (Bloom, Aether, Echo, Drift,
-//                  Grit, Tone). Each drives multiple params via curves.
-//                  Double-click resets to 0.5. Shift+drag for fine control.
+// Knobs          — 35 direct SVG arc knobs, grouped by function.
+//                  Each maps 1:1 to an engine parameter. Double-click
+//                  resets to default. Shift+drag for fine control.
 // Natal Chart    — Enter birth data, compute planetary positions via
 //                  circular-natal-horoscope-js, remap voice pitches
 //                  to zodiac-derived notes.
 //
 // ═══════════════════════════════════════════════════════════════
 
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import * as Tone from "tone";
 import { Origin, Horoscope } from "circular-natal-horoscope-js";
 import {
   TUNING,
   SHADOW,
-  MACROS,
+  KNOB_DEFS,
+  KNOB_GROUPS,
   CHAINS,
   ACTIVE_CHAIN,
   LISTEN_PRESETS,
+  OSC_TYPES,
 } from "./tuning";
-// "./presets/deep-space-oracle"
-// "./presets/tape-seance"
-// "./presets/harmonic-furnace"
-// "./presets/glass-meridian"
-// "./tuning"
 
 // ─── Font Constants ───────────────────────────────────────────
 // "'Rudelsberg', serif"
@@ -285,11 +282,7 @@ function rgbToHex(r, g, b) {
 const KEYBOARD_ORDER = Object.keys(PLANETS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
 const SHARP_POSITIONS = ["10%", "24%", "53%", "67%", "81%"];
-// Oscillator types cycled by Breathe button (easter egg).
-// "fat" variants use multiple detuned oscillators per voice — count/spread
-// set per planet in PLANETS config. Saw is default (richest harmonics for
-// Chebyshev intermodulation). Sine is purest. Tri is warm. Square is hollow.
-const OSC_TYPES = ["fatsawtooth", "fatsine", "fattriangle", "fatsquare"];
+// OSC_TYPES imported from tuning.js — 8 types cycled by Breathe
 
 // ─── Tuning Constants (imported from tuning.js) ─────────────
 
@@ -310,29 +303,6 @@ const ZODIAC_NOTES = {
   aquarius: "Bb",
   pisces: "F",
 };
-
-// ─── Macro Interpolation Helpers ─────────────────────────
-// All macros are 0–1. m=0.5 always produces TUNING defaults.
-// "split" variants have a 3-point anchor (min, mid, max).
-// "dormant" variants hold base value for m<=0.5, then ramp.
-function splitLog(min, mid, max, m) {
-  if (m <= 0.5) {
-    const t = m / 0.5;
-    return min * Math.pow(mid / min, t);
-  }
-  const t = (m - 0.5) / 0.5;
-  return mid * Math.pow(max / mid, t);
-}
-function splitLinear(min, mid, max, m) {
-  if (m <= 0.5) return min + (mid - min) * (m / 0.5);
-  return mid + (max - mid) * ((m - 0.5) / 0.5);
-}
-function dormantLinear(base, max, m) {
-  return m <= 0.5 ? base : base + (max - base) * ((m - 0.5) / 0.5);
-}
-function dormantLog(base, max, m) {
-  return m <= 0.5 ? base : base * Math.pow(max / base, (m - 0.5) / 0.5);
-}
 
 // ─── Knob Mapping ────────────────────────────────────────────
 
@@ -367,7 +337,7 @@ const KNOB_MAP = {
     },
   },
   // Grit
-  gritDrive: {
+  chebyWet: {
     apply: (eng, v) => {
       eng.fx.chebyshev.wet.value = v;
     },
@@ -377,7 +347,7 @@ const KNOB_MAP = {
       eng.fx.chebyshev.order = v;
     },
   },
-  // Tape
+  // EQ
   eqHigh: {
     apply: (eng, v) => {
       eng.fx.eq3.high.value = v;
@@ -393,38 +363,38 @@ const KNOB_MAP = {
       eng.fx.eq3.low.value = v;
     },
   },
-  // Wobble
-  wobbleRate: {
+  // Vibrato
+  vibratoFreq: {
     apply: (eng, v) => {
       eng.fx.vibrato.frequency.value = v;
     },
   },
-  wobbleDepth: {
+  vibratoDepth: {
     apply: (eng, v) => {
       eng.fx.vibrato.depth.value = v;
     },
   },
-  wobbleMix: {
+  vibratoWet: {
     apply: (eng, v) => {
       eng.fx.vibrato.wet.value = v;
     },
   },
-  // Echo (all ramped — prevents Doppler artifacts + feedback runaway)
-  echoTime: {
+  // Delay (all ramped — prevents Doppler artifacts + feedback runaway)
+  delayTime: {
     apply: (eng, v) => {
       const p = eng.fx.echoDelay.delayTime;
       p.cancelAndHoldAtTime(Tone.now());
       p.rampTo(v, 0.15);
     },
   },
-  echoFeedback: {
+  delayFeedback: {
     apply: (eng, v) => {
       const p = eng.fx.echoFeedbackGain.gain;
       p.cancelAndHoldAtTime(Tone.now());
       p.rampTo(v, 0.08);
     },
   },
-  echoMix: {
+  delayWet: {
     apply: (eng, v) => {
       const p = eng.fx.echoCrossfade.fade;
       p.cancelAndHoldAtTime(Tone.now());
@@ -450,7 +420,7 @@ const KNOB_MAP = {
       eng.fx.dampSweep.center = v;
     },
   },
-  reverbMix: {
+  reverbWet: {
     apply: (eng, v) => {
       eng.fx.reverb.wet.value = v;
     },
@@ -466,14 +436,14 @@ const KNOB_MAP = {
     },
   },
   // Space
-  panDrift: {
+  panLfoFreq: {
     apply: (eng, v) => {
       Object.values(eng.panLfos).forEach((l) => {
         l.frequency.value = v;
       });
     },
   },
-  panWidth: {
+  panLfoAmplitude: {
     apply: (eng, v) => {
       Object.values(eng.panLfos).forEach((l) => {
         l.amplitude.value = v;
@@ -501,70 +471,93 @@ const KNOB_MAP = {
       eng.fx.phaser.Q.value = v;
     },
   },
-  phaserMix: {
+  phaserWet: {
     apply: (eng, v) => {
       eng.fx.phaser.wet.value = v;
       eng.setBypass("phaser", v === 0);
     },
   },
-  // Chorus shimmer (post-reverb, always inline — wet=0 bypasses)
-  aetherShimmer: {
+  // Chorus
+  chorusWet: {
     apply: (eng, v) => {
       eng.fx.chorus.wet.value = v;
     },
   },
+  chorusFreq: {
+    apply: (eng, v) => {
+      eng.fx.chorus.frequency.value = v;
+    },
+  },
+  chorusDelay: {
+    apply: (eng, v) => {
+      eng.fx.chorus.delayTime = v;
+    },
+  },
+  chorusDepth: {
+    apply: (eng, v) => {
+      eng.fx.chorus.depth = v;
+    },
+  },
   // Saturate
-  satDrive: {
+  distortion: {
     apply: (eng, v) => {
       eng.fx.distortion.distortion = v;
     },
   },
-  satMix: {
+  distortionWet: {
     apply: (eng, v) => {
       eng.fx.distortion.wet.value = v;
       eng.setBypass("distortion", v === 0);
     },
   },
+  // EQ high frequency
+  eqHighFreq: {
+    apply: (eng, v) => {
+      eng.fx.eq3.highFrequency.value = v;
+    },
+  },
 };
 
-// ─── Macro Definitions ───────────────────────────────────
-// 6 macro knobs, each 0–1 normalized. 0.5 = TUNING defaults.
-// Each macro drives multiple params via opinionated curves.
-
-// Resolve declarative curve arrays into callable functions
-const CURVE_RESOLVERS = { splitLog, splitLinear, dormantLinear, dormantLog };
-
-function resolveCurve(spec) {
-  if (typeof spec === "function") return spec;
-  const [type, ...args] = spec;
-  const fn = CURVE_RESOLVERS[type];
-  return (m) => fn(...args, m);
+function formatValue(value, def) {
+  const u = def.unit || "";
+  if (def.scale === "step") return String(Math.round(value));
+  if (u === "dB") return `${value > 0 ? "+" : ""}${value.toFixed(0)}`;
+  if (u === "Hz") return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : `${value.toFixed(0)}`;
+  if (u === "s") return value < 1 ? `${(value * 1000).toFixed(0)}ms` : `${value.toFixed(1)}s`;
+  if (u === "ms") return `${value.toFixed(0)}ms`;
+  if (u === "%") return `${(value * 100).toFixed(0)}%`;
+  return value.toFixed(2);
 }
 
-const RESOLVED_MACROS = Object.fromEntries(
-  Object.entries(MACROS).map(([key, def]) => [
-    key,
-    {
-      ...def,
-      params: Object.fromEntries(
-        Object.entries(def.params).map(([param, spec]) => [
-          param,
-          resolveCurve(spec),
-        ]),
-      ),
-    },
-  ]),
-);
+// Log/step scale mappers — pure functions, hoisted for stable references
+const logMap = (min, max) => ({
+  mapFromNorm: (n) => min * Math.pow(max / min, n),
+  mapToNorm: (v) => Math.log(v / min) / Math.log(max / min),
+});
+const stepMap = (min, max) => ({
+  mapFromNorm: (n) => Math.round(min + n * (max - min)),
+  mapToNorm: (v) => (v - min) / (max - min),
+});
 
-function computeAllParams(macroValues) {
-  const params = {};
-  for (const [macro, val] of Object.entries(macroValues)) {
-    for (const [param, fn] of Object.entries(RESOLVED_MACROS[macro].params)) {
-      params[param] = fn(val);
-    }
-  }
-  return params;
-}
+// ─── SVG Arc Knob Geometry (hoisted — computed once) ─────────
+
+const DEG_TO_RAD = Math.PI / 180;
+const KNOB_R = 22, KNOB_CX = 28, KNOB_CY = 28;
+const KNOB_START = -135, KNOB_END = 135, KNOB_SWEEP = 270;
+
+const arcPoint = (angle) => ({
+  x: KNOB_CX + KNOB_R * Math.cos((angle - 90) * DEG_TO_RAD),
+  y: KNOB_CY + KNOB_R * Math.sin((angle - 90) * DEG_TO_RAD),
+});
+
+const describeArc = (start, end) => {
+  const s = arcPoint(start);
+  const e = arcPoint(end);
+  const large = end - start > 180 ? 1 : 0;
+  return `M ${s.x} ${s.y} A ${KNOB_R} ${KNOB_R} 0 ${large} 1 ${e.x} ${e.y}`;
+};
+
+const KNOB_TRACK_PATH = describeArc(KNOB_START, KNOB_END);
 
 // ─── SVG Arc Knob Component ──────────────────────────────────
 
@@ -580,34 +573,13 @@ const Knob = React.memo(function Knob({
   mapFromNorm,
 }) {
   const dragRef = useRef(null);
-  const size = 56;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 22;
-  const startAngle = -135;
-  const endAngle = 135;
-  const sweep = endAngle - startAngle; // 270°
 
   const norm = mapToNorm ? mapToNorm(value) : (value - min) / (max - min);
   const clampedNorm = Math.max(0, Math.min(1, norm));
-  const valueAngle = startAngle + clampedNorm * sweep;
+  const valueAngle = KNOB_START + clampedNorm * KNOB_SWEEP;
 
-  const degToRad = (d) => (d * Math.PI) / 180;
-  const arcPoint = (angle) => ({
-    x: cx + r * Math.cos(degToRad(angle - 90)),
-    y: cy + r * Math.sin(degToRad(angle - 90)),
-  });
-
-  const describeArc = (start, end) => {
-    const s = arcPoint(start);
-    const e = arcPoint(end);
-    const large = end - start > 180 ? 1 : 0;
-    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
-  };
-
-  const trackPath = describeArc(startAngle, endAngle);
   const valuePath =
-    clampedNorm > 0.003 ? describeArc(startAngle, valueAngle) : "";
+    clampedNorm > 0.003 ? describeArc(KNOB_START, valueAngle) : "";
   const pointer = arcPoint(valueAngle);
 
   const onPointerDown = useCallback(
@@ -647,8 +619,8 @@ const Knob = React.memo(function Knob({
     <div className="cel-knob">
       <span className="cel-knob-label">{label}</span>
       <svg
-        width={size}
-        height={size}
+        width="56"
+        height="56"
         className="cel-knob-svg"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -656,7 +628,7 @@ const Knob = React.memo(function Knob({
         onDoubleClick={onDoubleClick}
       >
         <path
-          d={trackPath}
+          d={KNOB_TRACK_PATH}
           fill="none"
           stroke="rgba(180,140,255,0.15)"
           strokeWidth="3"
@@ -670,8 +642,8 @@ const Knob = React.memo(function Knob({
           className="cel-knob-pointer"
         />
         <circle
-          cx={cx}
-          cy={cy}
+          cx={KNOB_CX}
+          cy={KNOB_CY}
           r="6"
           fill="rgba(180,140,255,0.08)"
           stroke="rgba(180,140,255,0.2)"
@@ -794,11 +766,11 @@ async function createEngine() {
   phaser.wet.value = TUNING.phaserWet;
 
   const chorus = new Tone.Chorus({
-    frequency: 0.8,
-    delayTime: 12,
-    depth: 0.6,
+    frequency: TUNING.chorusFreq,
+    delayTime: TUNING.chorusDelay,
+    depth: TUNING.chorusDepth,
   });
-  chorus.wet.value = 0.0;
+  chorus.wet.value = TUNING.chorusWet;
 
   const distortion = new Tone.Distortion({
     distortion: TUNING.distortion,
@@ -906,7 +878,7 @@ async function createEngine() {
           sustain: TUNING.sustain,
           release: TUNING.release,
         },
-        volume: -12,
+        volume: -6,
       },
     });
     synth.set({ detune: cfg.detuneCents });
@@ -995,8 +967,8 @@ export default function App() {
   const rootRef = useRef(null);
   const emanationRef = useRef(null);
   const shadowRef = useRef(false);
-  const macrosRef = useRef(null);
   const pendingOscTypeRef = useRef(null);
+  const activeOscTypeRef = useRef(OSC_TYPES[0]);
   const canvasCtxRef = useRef(null);
   const rafIdRef = useRef(null);
   const lastFrameTimeRef = useRef(null);
@@ -1011,25 +983,67 @@ export default function App() {
   const [natalLat, setNatalLat] = useState("");
   const [natalLng, setNatalLng] = useState("");
   const [natalNotes, setNatalNotes] = useState({});
-  const [macros, setMacros] = useState(
-    Object.fromEntries(
-      Object.entries(RESOLVED_MACROS).map(([k, v]) => [k, v.default]),
+  const initParams = () =>
+    Object.fromEntries(Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]));
+  const [params, setParams] = useState(initParams);
+  const paramsRef = useRef(null);
+
+  const setParam = useCallback((name, value) => {
+    setParams((prev) => {
+      const eng = engineRef.current;
+      if (eng) KNOB_MAP[name]?.apply(eng, value);
+      return { ...prev, [name]: value };
+    });
+  }, []);
+
+  // Stable callbacks — one per param, never re-created
+  const paramSetters = useMemo(
+    () => Object.fromEntries(
+      Object.keys(KNOB_DEFS).map((name) => [name, (v) => setParam(name, v)])
     ),
+    [setParam],
   );
 
-  const setMacro = useCallback((name, value) => {
-    setMacros((prev) => {
-      const next = { ...prev, [name]: value };
-      const eng = engineRef.current;
-      if (eng) {
-        const def = RESOLVED_MACROS[name];
-        for (const [param, fn] of Object.entries(def.params)) {
-          const v = fn(value);
-          KNOB_MAP[param]?.apply(eng, v);
-        }
+  // Pre-computed format functions — stable references for React.memo
+  const formatFns = useMemo(
+    () => Object.fromEntries(
+      Object.entries(KNOB_DEFS).map(([name, def]) => [name, (v) => formatValue(v, def)])
+    ),
+    [],
+  );
+
+  // Pre-computed grouped knobs with row support for side-by-side pairs
+  const groupedKnobs = useMemo(() => {
+    const groups = KNOB_GROUPS.map(({ key, label, row }) => ({
+      key,
+      label,
+      row,
+      knobs: Object.entries(KNOB_DEFS).filter(([_, d]) => d.group === key),
+    }));
+    const result = [];
+    const seen = new Set();
+    for (const g of groups) {
+      if (seen.has(g.key)) continue;
+      seen.add(g.key);
+      if (g.row != null) {
+        const partners = groups.filter(x => x.row === g.row && !seen.has(x.key));
+        partners.forEach(p => seen.add(p.key));
+        result.push({ type: "row", groups: [g, ...partners] });
+      } else {
+        result.push({ type: "single", ...g });
       }
-      return next;
-    });
+    }
+    return result;
+  }, []);
+
+  const knobScaleProps = useMemo(() => {
+    const props = {};
+    for (const [name, def] of Object.entries(KNOB_DEFS)) {
+      props[name] = def.scale === "log" ? logMap(def.min, def.max)
+        : def.scale === "step" ? stepMap(def.min, def.max)
+        : {};
+    }
+    return props;
   }, []);
 
   useEffect(() => {
@@ -1046,8 +1060,8 @@ export default function App() {
     shadowRef.current = shadow;
   }, [shadow]);
   useEffect(() => {
-    macrosRef.current = macros;
-  }, [macros]);
+    paramsRef.current = params;
+  }, [params]);
 
   // ─── Position cache (eliminates getBoundingClientRect in rAF) ──
   useEffect(() => {
@@ -1155,7 +1169,7 @@ export default function App() {
         }
 
         // Key glow — write only when changed (dirty flag)
-        const glowAlpha = level > 0.01 ? Math.min(level * 0.5, 0.3) : 0;
+        const glowAlpha = level > 0.01 ? Math.min(level * 0.7, 0.45) : 0;
         const el = keyRefsRef.current[planet];
         if (el) {
           const prevGlow = lastGlowRef.current[planet];
@@ -1178,8 +1192,8 @@ export default function App() {
             r,
             g,
             b,
-            alpha: level * 0.25,
-            falloff: shadowRef.current ? 85 : 70,
+            alpha: level * 0.38,
+            falloff: shadowRef.current ? 95 : 78,
           });
         }
 
@@ -1204,20 +1218,16 @@ export default function App() {
       const ctx = canvasCtxRef.current;
       if (canvas && ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (const gd of gradients) {
-          const radius = canvas.height * (gd.falloff / 100);
-          const grad = ctx.createRadialGradient(
-            gd.cx,
-            gd.cy,
-            0,
-            gd.cx,
-            gd.cy,
-            radius,
-          );
-          grad.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},${gd.alpha})`);
-          grad.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
-          ctx.fillStyle = grad;
-          ctx.fillRect(gd.cx - radius, gd.cy - radius, radius * 2, radius * 2);
+        if (gradients.length > 0) {
+          for (const gd of gradients) {
+            const radius = (canvas.height * gd.falloff / 100) | 0;
+            const cx = gd.cx | 0, cy = gd.cy | 0;
+            const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+            grad.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},${gd.alpha})`);
+            grad.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+          }
         }
       }
 
@@ -1263,7 +1273,12 @@ export default function App() {
 
   const ensureEngine = useCallback(async () => {
     if (!engineRef.current) {
-      engineRef.current = await createEngine();
+      const eng = await createEngine();
+      // Apply all KNOB_DEFS defaults (may differ from TUNING construction values)
+      for (const [name, def] of Object.entries(KNOB_DEFS)) {
+        KNOB_MAP[name]?.apply(eng, def.default);
+      }
+      engineRef.current = eng;
       setStatus("ready");
     }
     return engineRef.current;
@@ -1277,12 +1292,11 @@ export default function App() {
       const noteClass =
         natalMode && natalNotes[planet] ? natalNotes[planet] : cfg.note;
       const note = `${noteClass}${cfg.octave}`;
-      // Derive envelope from bloom macro for visuals
-      const bloom = macrosRef.current?.bloom ?? 0.5;
-      const attack = RESOLVED_MACROS.bloom.params.attack(bloom);
-      const decay = RESOLVED_MACROS.bloom.params.decay(bloom);
-      const sustain = RESOLVED_MACROS.bloom.params.sustain(bloom);
-      const release = RESOLVED_MACROS.bloom.params.release(bloom);
+      const p = paramsRef.current || initParams();
+      const attack = p.attack;
+      const decay = p.decay;
+      const sustain = p.sustain;
+      const release = p.release;
       setActivePlanets((prev) => {
         const next = new Set(prev);
         if (next.has(planet)) {
@@ -1298,8 +1312,14 @@ export default function App() {
         } else {
           // Apply pending osc type from breathe before triggering
           if (pendingOscTypeRef.current) {
-            Object.values(eng.synths).forEach((s) => {
-              s.set({ oscillator: { type: pendingOscTypeRef.current } });
+            const t = pendingOscTypeRef.current;
+            const isFat = t.startsWith("fat");
+            Object.entries(eng.synths).forEach(([name, s]) => {
+              s.set({ oscillator: { type: t } });
+              if (isFat) {
+                s.set({ oscillator: { count: PLANETS[name].oscCount, spread: PLANETS[name].oscSpread } });
+                eng.spreadTracker[name] = PLANETS[name].oscSpread;
+              }
             });
             pendingOscTypeRef.current = null;
           }
@@ -1330,8 +1350,8 @@ export default function App() {
 
   const breathe = useCallback(async () => {
     const eng = await ensureEngine();
-    const bloom = macrosRef.current?.bloom ?? 0.5;
-    const release = RESOLVED_MACROS.bloom.params.release(bloom);
+    const p = paramsRef.current || initParams();
+    const release = p.release;
     if (activePlanets.size > 0) {
       Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
       for (const planet of activePlanets) {
@@ -1350,29 +1370,32 @@ export default function App() {
       const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } =
         eng.fx;
       const rt = SHADOW.rampTime;
-      const restored = computeAllParams(macrosRef.current);
+      const saved = paramsRef.current;
       shadowIntervalsRef.current.forEach((id) => clearInterval(id));
       shadowIntervalsRef.current = [];
-      reverb.wet.rampTo(restored.reverbMix, rt);
-      echoFeedbackGain.gain.rampTo(restored.echoFeedback, rt);
-      echoCrossfade.fade.rampTo(restored.echoMix, rt);
-      vibrato.depth.rampTo(restored.wobbleDepth, rt);
-      vibrato.frequency.rampTo(restored.wobbleRate, rt);
-      chebyshev.wet.rampTo(restored.gritDrive, rt);
+      reverb.wet.rampTo(saved.reverbWet, rt);
+      echoFeedbackGain.gain.rampTo(saved.delayFeedback, rt);
+      echoCrossfade.fade.rampTo(saved.delayWet, rt);
+      vibrato.depth.rampTo(saved.vibratoDepth, rt);
+      vibrato.frequency.rampTo(saved.vibratoFreq, rt);
+      chebyshev.wet.rampTo(saved.chebyWet, rt);
       Object.values(eng.panLfos).forEach((lfo) => {
-        lfo.frequency.rampTo(restored.panDrift, rt);
-        lfo.amplitude.rampTo(restored.panWidth, rt);
+        lfo.frequency.rampTo(saved.panLfoFreq, rt);
+        lfo.amplitude.rampTo(saved.panLfoAmplitude, rt);
       });
-      Object.entries(eng.synths).forEach(([name, synth]) => {
-        synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
-        synth.set({ detune: PLANETS[name].detuneCents });
-        eng.spreadTracker[name] = PLANETS[name].oscSpread;
-      });
+      if (activeOscTypeRef.current?.startsWith("fat")) {
+        Object.entries(eng.synths).forEach(([name, synth]) => {
+          synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
+          synth.set({ detune: PLANETS[name].detuneCents });
+          eng.spreadTracker[name] = PLANETS[name].oscSpread;
+        });
+      }
       setShadow(false);
     }
     // Defer osc type change — voices may still be releasing
     const next = (oscIndex + 1) % OSC_TYPES.length;
     pendingOscTypeRef.current = OSC_TYPES[next];
+    activeOscTypeRef.current = OSC_TYPES[next];
     setOscIndex(next);
   }, [activePlanets, ensureEngine, oscIndex, shadow]);
 
@@ -1396,25 +1419,29 @@ export default function App() {
         lfo.amplitude.rampTo(st.panLfoAmplitude, rt);
       });
 
-      // Slow spread ramp — +1 per 60ms tick (~4.8s to reach 120)
-      const spreadId = setInterval(() => {
-        let allDone = true;
-        Object.entries(eng.synths).forEach(([name, synth]) => {
-          const current = eng.spreadTracker[name];
-          if (current < st.oscSpread) {
-            allDone = false;
-            const next = Math.min(current + 1, st.oscSpread);
-            eng.spreadTracker[name] = next;
-            synth.set({ oscillator: { spread: next } });
+      // Slow spread ramp — only for fat oscillator types
+      const intervals = [];
+      if (activeOscTypeRef.current?.startsWith("fat")) {
+        const spreadId = setInterval(() => {
+          let allDone = true;
+          Object.entries(eng.synths).forEach(([name, synth]) => {
+            const current = eng.spreadTracker[name];
+            if (current < st.oscSpread) {
+              allDone = false;
+              const next = Math.min(current + 1, st.oscSpread);
+              eng.spreadTracker[name] = next;
+              synth.set({ oscillator: { spread: next } });
+            }
+          });
+          if (allDone) {
+            clearInterval(spreadId);
+            shadowIntervalsRef.current = shadowIntervalsRef.current.filter(
+              (id) => id !== spreadId,
+            );
           }
-        });
-        if (allDone) {
-          clearInterval(spreadId);
-          shadowIntervalsRef.current = shadowIntervalsRef.current.filter(
-            (id) => id !== spreadId,
-          );
-        }
-      }, 60);
+        }, 60);
+        intervals.push(spreadId);
+      }
 
       // Smooth detune drift — lerp toward random targets
       const detuneId = setInterval(() => {
@@ -1426,31 +1453,34 @@ export default function App() {
           synth.set({ detune: next });
         });
       }, 1200);
+      intervals.push(detuneId);
 
-      shadowIntervalsRef.current = [spreadId, detuneId];
+      shadowIntervalsRef.current = intervals;
     } else {
       shadowIntervalsRef.current.forEach((id) => clearInterval(id));
       shadowIntervalsRef.current = [];
 
       const rt = st.rampTime;
-      const restored = computeAllParams(macrosRef.current);
-      reverb.wet.rampTo(restored.reverbMix, rt);
-      echoFeedbackGain.gain.rampTo(restored.echoFeedback, rt);
-      echoCrossfade.fade.rampTo(restored.echoMix, rt);
-      vibrato.depth.rampTo(restored.wobbleDepth, rt);
-      vibrato.frequency.rampTo(restored.wobbleRate, rt);
-      chebyshev.wet.rampTo(restored.gritDrive, rt);
+      const saved = paramsRef.current;
+      reverb.wet.rampTo(saved.reverbWet, rt);
+      echoFeedbackGain.gain.rampTo(saved.delayFeedback, rt);
+      echoCrossfade.fade.rampTo(saved.delayWet, rt);
+      vibrato.depth.rampTo(saved.vibratoDepth, rt);
+      vibrato.frequency.rampTo(saved.vibratoFreq, rt);
+      chebyshev.wet.rampTo(saved.chebyWet, rt);
 
       Object.values(eng.panLfos).forEach((lfo) => {
-        lfo.frequency.rampTo(restored.panDrift, rt);
-        lfo.amplitude.rampTo(restored.panWidth, rt);
+        lfo.frequency.rampTo(saved.panLfoFreq, rt);
+        lfo.amplitude.rampTo(saved.panLfoAmplitude, rt);
       });
 
-      Object.entries(eng.synths).forEach(([name, synth]) => {
-        synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
-        synth.set({ detune: PLANETS[name].detuneCents });
-        eng.spreadTracker[name] = PLANETS[name].oscSpread;
-      });
+      if (activeOscTypeRef.current?.startsWith("fat")) {
+        Object.entries(eng.synths).forEach(([name, synth]) => {
+          synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
+          synth.set({ detune: PLANETS[name].detuneCents });
+          eng.spreadTracker[name] = PLANETS[name].oscSpread;
+        });
+      }
     }
     setShadow((s) => !s);
   }, [shadow, ensureEngine]);
@@ -1544,17 +1574,23 @@ export default function App() {
     setTimeout(() => {
       // Apply pending osc type from breathe before triggering
       if (pendingOscTypeRef.current) {
-        Object.values(eng.synths).forEach((s) => {
-          s.set({ oscillator: { type: pendingOscTypeRef.current } });
+        const t = pendingOscTypeRef.current;
+        const isFat = t.startsWith("fat");
+        Object.entries(eng.synths).forEach(([name, s]) => {
+          s.set({ oscillator: { type: t } });
+          if (isFat) {
+            s.set({ oscillator: { count: PLANETS[name].oscCount, spread: PLANETS[name].oscSpread } });
+            eng.spreadTracker[name] = PLANETS[name].oscSpread;
+          }
         });
         pendingOscTypeRef.current = null;
       }
 
-      const bloom = macrosRef.current?.bloom ?? 0.5;
-      const attack = RESOLVED_MACROS.bloom.params.attack(bloom);
-      const decay = RESOLVED_MACROS.bloom.params.decay(bloom);
-      const sustain = RESOLVED_MACROS.bloom.params.sustain(bloom);
-      const release = RESOLVED_MACROS.bloom.params.release(bloom);
+      const p = paramsRef.current || initParams();
+      const attack = p.attack;
+      const decay = p.decay;
+      const sustain = p.sustain;
+      const release = p.release;
 
       const now = Tone.now();
       const next = new Set();
@@ -1624,7 +1660,7 @@ export default function App() {
                   className={`cel-key cel-key-natural${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
                   onClick={() => togglePlanet(planet)}
                 >
-                  <span className="cel-key-glyph">{cfg.glyph}</span>
+                  <span className={`cel-key-glyph${cfg.glyph === "AC" ? " cel-key-glyph-sm" : ""}`}>{cfg.glyph}</span>
                   <span className="cel-key-name">{planet}</span>
                   <span className="cel-key-note">
                     {natalMode && natalNotes[planet]
@@ -1660,6 +1696,19 @@ export default function App() {
           )}
         </div>
 
+        <div className="cel-listen">
+          {Object.entries(LISTEN_PRESETS).map(([key, preset]) => (
+            <button
+              key={key}
+              type="button"
+              className={`cel-listen-pill${listenPreset === key ? " cel-listen-active" : ""}`}
+              onClick={() => applyListenPreset(key)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
         <div className="cel-controls">
           <button
             type="button"
@@ -1674,36 +1723,57 @@ export default function App() {
             className="cel-btn cel-breathe-btn"
             onClick={breathe}
           >
+            <span className="cel-btn-glyph">{"\u223F"}</span>
             <span className="cel-btn-label">Breathe</span>
           </button>
         </div>
 
-        <div className="cel-listen">
-          {Object.entries(LISTEN_PRESETS).map(([key, preset]) => (
-            <button
-              key={key}
-              type="button"
-              className={`cel-listen-pill${listenPreset === key ? " cel-listen-active" : ""}`}
-              onClick={() => applyListenPreset(key)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-
         <div className="cel-macros">
-          {Object.entries(RESOLVED_MACROS).map(([key, def]) => (
-            <Knob
-              key={key}
-              label={def.label}
-              value={macros[key]}
-              defaultValue={def.default}
-              min={0}
-              max={1}
-              format={(v) => v.toFixed(2)}
-              onChange={(v) => setMacro(key, v)}
-            />
-          ))}
+          {groupedKnobs.map((item) =>
+            item.type === "row" ? (
+              <div key={item.groups.map(g => g.key).join("-")} className="cel-group-row">
+                {item.groups.map(g => (
+                  <div key={g.key} className="cel-group">
+                    <span className="cel-group-label">{g.label}</span>
+                    <div className="cel-group-knobs">
+                      {g.knobs.map(([name, def]) => (
+                        <Knob
+                          key={name}
+                          label={def.label}
+                          value={params[name]}
+                          defaultValue={def.default}
+                          min={def.min}
+                          max={def.max}
+                          {...knobScaleProps[name]}
+                          format={formatFns[name]}
+                          onChange={paramSetters[name]}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div key={item.key} className="cel-group">
+                <span className="cel-group-label">{item.label}</span>
+                <div className="cel-group-knobs">
+                  {item.knobs.map(([name, def]) => (
+                    <Knob
+                      key={name}
+                      label={def.label}
+                      value={params[name]}
+                      defaultValue={def.default}
+                      min={def.min}
+                      max={def.max}
+                      {...knobScaleProps[name]}
+                      format={formatFns[name]}
+                      onChange={paramSetters[name]}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          )}
         </div>
 
         {/* Natal Chart — hidden until Lionel provides mapping data
@@ -1714,7 +1784,7 @@ export default function App() {
         */}
 
         <div className="cel-footer">
-          <p>v11 &middot; 12&times;2 voices &middot; 16kHz &middot; 6 macros</p>
+          <p>v12 &middot; 12&times;2 voices &middot; 16kHz &middot; 35 knobs</p>
           <h1 className="cel-title">celezdial selekta</h1>
         </div>
       </div>
@@ -1727,67 +1797,67 @@ export default function App() {
 const CSS = `
   @font-face {
     font-family: 'Rudelsberg';
-    src: url('/fonts/rudelsberg/Rudelsberg.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Rudelsberg Alternate';
-    src: url('/fonts/rudelsberg/RudelsbergAlternate.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/RudelsbergAlternate.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Rudelsberg Titel';
-    src: url('/fonts/rudelsberg/Rudelsberg-Titel.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Titel.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Rudelsberg Initialen';
-    src: url('/fonts/rudelsberg/Rudelsberg-Initialen.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Initialen.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Rudelsberg Schmuck';
-    src: url('/fonts/rudelsberg/Rudelsberg-Schmuck.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Schmuck.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Rudelsberg Plakatschrift';
-    src: url('/fonts/rudelsberg/Rudelsberg-Plakatschrift.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Plakatschrift.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Spiral ST';
-    src: url('/fonts/spiral-st/SpiralST.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/spiral-st/SpiralST.ttf') format('truetype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Gerakent';
-    src: url('/fonts/gerakent/GERAKENTtrial.otf') format('opentype');
+    src: url('${process.env.PUBLIC_URL}/fonts/gerakent/GERAKENTtrial.otf') format('opentype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Xagetif';
-    src: url('/fonts/xagetif/Xagetiftrial.otf') format('opentype');
+    src: url('${process.env.PUBLIC_URL}/fonts/xagetif/Xagetiftrial.otf') format('opentype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Gesego';
-    src: url('/fonts/gesego/Gesegotrial.otf') format('opentype');
+    src: url('${process.env.PUBLIC_URL}/fonts/gesego/Gesegotrial.otf') format('opentype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Salty Mussy';
-    src: url('/fonts/salty-mussy-demo/Salty Mussy DEMO.otf') format('opentype');
+    src: url('${process.env.PUBLIC_URL}/fonts/salty-mussy-demo/Salty Mussy DEMO.otf') format('opentype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Ruigslay';
-    src: url('/fonts/ruigslay/Ruigslay.otf') format('opentype');
+    src: url('${process.env.PUBLIC_URL}/fonts/ruigslay/Ruigslay.otf') format('opentype');
     font-display: swap;
   }
   @font-face {
     font-family: 'Soiglat';
-    src: url('/fonts/soiglat/Soiglat-Regular.ttf') format('truetype');
+    src: url('${process.env.PUBLIC_URL}/fonts/soiglat/Soiglat-Regular.ttf') format('truetype');
     font-display: swap;
   }
 
@@ -1807,6 +1877,7 @@ const CSS = `
     display: flex;
     flex-direction: column;
     align-items: center;
+    contain: layout;
     padding: 2.5rem 1rem;
     user-select: none;
     -webkit-user-select: none;
@@ -1845,7 +1916,7 @@ const CSS = `
 
   .cel-oracle {
     text-align: center;
-    color: #706888;
+    color: #a098b8;
     font-size: 0.75rem;
     letter-spacing: 0.35em;
     line-height: 1.3;
@@ -1867,6 +1938,7 @@ const CSS = `
     height: 160px;
     margin-bottom: 1.2rem;
     overflow: visible;
+    contain: layout;
   }
 
   .cel-key {
@@ -1968,6 +2040,10 @@ const CSS = `
     text-shadow: 0 0 10px rgba(200, 160, 255, 0.6);
   }
 
+  .cel-key-glyph-sm {
+    font-size: 0.9rem;
+  }
+
   .cel-key-name {
     font-weight: 600;
     font-size: 0.7rem;
@@ -2004,6 +2080,7 @@ const CSS = `
     gap: 0.8rem;
     justify-content: center;
     margin-bottom: 1rem;
+    contain: layout;
   }
 
   /* ── Base button ─────────────────────────────────────── */
@@ -2098,6 +2175,8 @@ const CSS = `
   .cel-breathe-btn {
     border-color: rgba(255, 180, 140, 0.15);
     padding: 0.6rem 2rem;
+    flex-direction: row;
+    gap: 0.4rem;
     justify-content: center;
   }
 
@@ -2114,6 +2193,7 @@ const CSS = `
     gap: 0.4rem;
     justify-content: center;
     margin-bottom: 1.5rem;
+    contain: layout;
   }
 
   .cel-listen-pill {
@@ -2144,12 +2224,45 @@ const CSS = `
 
   .cel-macros {
     display: flex;
-    gap: 1rem;
-    justify-content: center;
-    max-width: 480px;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 600px;
     width: 100%;
     margin-bottom: 1.5rem;
-    flex-wrap: wrap;
+    contain: layout;
+  }
+
+  .cel-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px 4px;
+    border: 1px solid rgba(180, 140, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(180, 140, 255, 0.02);
+    contain: layout style;
+  }
+
+  .cel-group-label {
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: rgba(180, 140, 255, 0.35);
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+
+  .cel-group-knobs {
+    display: flex;
+    gap: 2px;
+  }
+
+  .cel-group-row {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
   }
 
   .cel-knob {
@@ -2159,6 +2272,7 @@ const CSS = `
     gap: 0.1rem;
     flex: 1;
     max-width: 80px;
+    contain: layout style;
   }
 
   .cel-knob-label {

@@ -1,6 +1,7 @@
 {
-  "name": "tonejs",
+  "name": "celezdial-selekta",
   "version": "1.0.0",
+  "homepage": "https://ampactor.github.io/celezdial-selekta",
   "description": "",
   "keywords": [],
   "main": "src/index.js",

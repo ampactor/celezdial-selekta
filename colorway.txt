@@ -1,8 +1,0 @@
-sun = [#f28320, #f15d22, #d94126, #a41d21, #0c0c0c];
-mercury = [#595856, #c0bdbc, #8d8a88, #f5f6f7, #0c0c0c];
-venus = [#878a8d, #d9b292, #f4dbc4, #414141, #0c0c0c];
-earth = [#426b8f, #6388a8, #b8cbdb, #dfebf5, #0c0c0c];
-mars = [#dabd9d, #8c5c4a, #f27b5f, #c26d5c, #0c0c0c];
-jupiter = [#282311, #c08237, #bfaf9b, #c0a480, #0c0c0c];
-uranus = [#3f575a, #688a8d, #95bbbe, #d0ecf0, #0c0c0c];
-neptune = [#657ba5, #7495bf, #4e5d74, #779ebf, #0c0c0c];
