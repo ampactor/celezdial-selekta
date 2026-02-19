@@ -183,6 +183,131 @@ export const SHADOW = {
   rampTime: 16, // seconds to reach chaos targets
 };
 
+// ─── Natal Composition Constants ──────────────────────────────
+// Three layers of astrological meaning:
+//   1. Entry order — astrological importance hierarchy
+//   2. Entry timing — aspect relationships drive gaps between entries
+//   3. Articulation — orbital speed → pulse (inner) or pad (outer)
+export const NATAL_COMP = {
+  // ── Entry order: planets enter by astrological importance ──
+  PRIORITY: [
+    ["Sun", "Moon"],                              // luminaries
+    ["Ascendant"],                                // chart angle (needs birth time)
+    ["Mercury", "Venus", "Mars"],                 // personal
+    ["Jupiter", "Saturn"],                        // social
+    ["Uranus", "Neptune", "Pluto", "Chiron"],     // transpersonal
+  ],
+
+  // ── Entry timing: aspect type → base gap (seconds) ──
+  ASPECT_GAPS: {
+    conjunction: 0.3,   // near-simultaneous — harmonic fusion
+    sextile:     1.2,   // gentle support
+    trine:       1.8,   // flowing harmony
+    square:      3.0,   // tension pause
+    opposition:  3.5,   // dramatic counterpoint
+  },
+  DEFAULT_GAP: 2.2,     // no aspect to any sounding voice
+  MAX_ORBS: { conjunction: 8, sextile: 6, trine: 8, square: 8, opposition: 8 },
+  MIN_GAP: 0.2,         // floor — never < 200ms
+
+  // ── Articulation: orbital speed → pulse or pad ──
+  // Inner planets pulse rhythmically; outer planets sustain as pads.
+  // Pulse rate = cycle time in seconds. Higher daily motion → faster pulse.
+  PULSE_RATES: {
+    Moon:    0.6,    // rapid emotional flutter
+    Mars:    0.75,   // driving, assertive
+    Mercury: 0.85,   // communicative darting
+    Venus:   1.3,    // graceful heartbeat
+    Sun:     2.0,    // slow luminous breathing
+  },
+  // Planets NOT in PULSE_RATES are pads (Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron, Ascendant)
+
+  PULSE_DUTY: 0.5,      // fraction of cycle time that's note-on
+  // Compressed envelope for pulse voices (base values × planetary multipliers)
+  PULSE_ENVELOPE: {
+    attack:  0.06,
+    decay:   0.08,
+    sustain: 0.6,
+    release: 0.3,
+  },
+
+  SUSTAIN_HOLD: 3.0,    // seconds to hold full chord after last entry
+
+  FINALE: {
+    reverbWet: 0.95,    // bloom target
+    reverbRamp: 0.3,    // seconds to ramp reverb up — fast bloom
+    cutRelease: 0.05,   // seconds — near-instant voice cut
+    tailTime: 8.0,      // seconds before restoring reverb to saved value
+  },
+};
+
+// ─── Natal Schedule Composer ──────────────────────────────────
+// Pure function: chartData → timed event schedule.
+// Entry order = astrological importance. Timing = aspect relationships.
+// Articulation = orbital speed (pulse vs pad).
+export function composeNatalSchedule(chartData) {
+  const { bodies, aspects, ascendantSign } = chartData;
+  const events = [];
+  const enteredBodies = new Set();
+  const enteredSigns = new Set();
+  let time = 0;
+
+  // Flatten priority tiers, resolve each planet
+  for (const tier of NATAL_COMP.PRIORITY) {
+    for (const bodyName of tier) {
+      // Ascendant: skip if no birth time (no ascendantSign)
+      if (bodyName === "Ascendant" && !ascendantSign) continue;
+      const bodyInfo = bodies[bodyName];
+      if (!bodyInfo) continue;
+
+      const { sign, degree } = bodyInfo;
+      const detuneCents = (degree - 15) * TUNING.centsPerDegree;
+
+      // Compute gap from aspect relationships
+      if (enteredBodies.size > 0) {
+        let bestGap = NATAL_COMP.DEFAULT_GAP;
+        for (const entered of enteredBodies) {
+          for (const asp of aspects) {
+            const pair = [asp.body1, asp.body2];
+            if (pair.includes(bodyName) && pair.includes(entered)) {
+              const type = asp.type;
+              const baseGap = NATAL_COMP.ASPECT_GAPS[type];
+              const maxOrb = NATAL_COMP.MAX_ORBS[type];
+              if (baseGap === undefined || maxOrb === undefined) continue;
+              const gap = baseGap + (NATAL_COMP.DEFAULT_GAP - baseGap) * (asp.orb / maxOrb);
+              const clamped = Math.max(NATAL_COMP.MIN_GAP, Math.min(NATAL_COMP.DEFAULT_GAP, gap));
+              if (clamped < bestGap) bestGap = clamped;
+            }
+          }
+        }
+        time += bestGap;
+      }
+
+      enteredBodies.add(bodyName);
+
+      // Deduplicate signs — skip event if sign already sounding
+      if (enteredSigns.has(sign)) continue;
+      enteredSigns.add(sign);
+
+      // Assign articulation
+      const pulseRate = NATAL_COMP.PULSE_RATES[bodyName] ?? null;
+      events.push({
+        time,
+        sign,
+        bodyName,
+        detuneCents,
+        mode: pulseRate !== null ? "pulse" : "pad",
+        pulseRate,
+      });
+    }
+  }
+
+  return {
+    totalDuration: time,
+    events,
+  };
+}
+
 // ─── Knob Definitions ────────────────────────────────────────
 // 35 direct-control knobs, one per audio parameter.
 // Each knob maps directly to a single Tone.js param — no macros.

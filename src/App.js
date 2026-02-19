@@ -107,6 +107,8 @@ import {
   OCTAVE_GAIN,
   PLANETARY_CHARACTER,
   SIGN_RULERS,
+  NATAL_COMP,
+  composeNatalSchedule,
 } from "./tuning";
 
 // ─── Font Constants ───────────────────────────────────────────
@@ -146,7 +148,7 @@ const SIGNS = {
     glyph: "\u2652\uFE0E",
     note: "C",
     detuneCents: 6, // Saturn ×0.5
-    panBase: -0.70,
+    panBase: -0.7,
     panGroup: "A",
     oscCount: 2,
     oscSpread: 5,
@@ -168,14 +170,14 @@ const SIGNS = {
     glyph: "\u2648\uFE0E",
     note: "D",
     detuneCents: -12.5, // Mars ×0.5
-    panBase: -0.40,
+    panBase: -0.4,
     panGroup: "B",
     oscCount: 2,
     oscSpread: 8,
   },
   Taurus: {
     octave: 3,
-    vel: 0.50,
+    vel: 0.5,
     glyph: "\u2649\uFE0E",
     note: "Eb",
     detuneCents: 5, // Venus ×0.5
@@ -190,18 +192,18 @@ const SIGNS = {
     glyph: "\u264A\uFE0E",
     note: "E",
     detuneCents: 16.5, // Mercury ×0.5
-    panBase: -0.30,
+    panBase: -0.3,
     panGroup: "B",
     oscCount: 3,
     oscSpread: 12,
   },
   Cancer: {
     octave: 4,
-    vel: 0.60,
+    vel: 0.6,
     glyph: "\u264B\uFE0E",
     note: "F",
     detuneCents: 11.5, // Moon ×0.5
-    panBase: 0.70,
+    panBase: 0.7,
     panGroup: "D",
     oscCount: 2,
     oscSpread: 8,
@@ -212,7 +214,7 @@ const SIGNS = {
     glyph: "\u264C\uFE0E",
     note: "Gb",
     detuneCents: 19, // Sun ×0.5
-    panBase: 0.10,
+    panBase: 0.1,
     panGroup: "B",
     oscCount: 2,
     oscSpread: 5,
@@ -223,7 +225,7 @@ const SIGNS = {
     glyph: "\u264D\uFE0E",
     note: "G",
     detuneCents: 16.5, // Mercury ×0.5
-    panBase: -0.60,
+    panBase: -0.6,
     panGroup: "A",
     oscCount: 3,
     oscSpread: 12,
@@ -245,14 +247,14 @@ const SIGNS = {
     glyph: "\u264F\uFE0E",
     note: "A",
     detuneCents: -12.5, // Mars ×0.5
-    panBase: -0.20,
+    panBase: -0.2,
     panGroup: "C",
     oscCount: 2,
     oscSpread: 5,
   },
   Sagittarius: {
     octave: 5,
-    vel: 0.40,
+    vel: 0.4,
     glyph: "\u2650\uFE0E",
     note: "Bb",
     detuneCents: -6.5, // Jupiter ×0.5
@@ -277,17 +279,21 @@ const SIGNS = {
 // Merge planetary character into sign config — all engine code reads from this.
 const SIGN_CHARACTER = Object.fromEntries(
   Object.entries(SIGNS).map(([name, cfg]) => [
-    name, { ...cfg, ...PLANETARY_CHARACTER[SIGN_RULERS[name]] }
-  ])
+    name,
+    { ...cfg, ...PLANETARY_CHARACTER[SIGN_RULERS[name]] },
+  ]),
 );
 
 // Adaptive voicing: boost gain when fewer voices are active.
 // Formula: 5 × log10(12 / activeCount) dB
 // 12 voices: 0dB, 6: +1.5dB, 3: +3dB, 1: +5.4dB
 function applyAdaptiveVoicing(eng, activeCount) {
-  const boost = activeCount > 0 ? 5 * Math.log10(12 / Math.max(1, activeCount)) : 0;
+  const boost =
+    activeCount > 0 ? 5 * Math.log10(12 / Math.max(1, activeCount)) : 0;
   Object.entries(eng.synths).forEach(([name, synth]) => {
-    synth.set({ volume: -9 + (OCTAVE_GAIN[SIGN_CHARACTER[name].octave] || 0) + boost });
+    synth.set({
+      volume: -9 + (OCTAVE_GAIN[SIGN_CHARACTER[name].octave] || 0) + boost,
+    });
   });
 }
 
@@ -317,6 +323,7 @@ function rgbToHex(r, g, b) {
 }
 
 const VIS_SPEED = 0.65; // visual envelope runs ~35% faster than audio
+const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 const KEYBOARD_ORDER = Object.keys(SIGNS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
@@ -344,7 +351,11 @@ const KNOB_MAP = {
   sustain: {
     apply: (eng, v) => {
       Object.entries(eng.synths).forEach(([name, s]) => {
-        s.set({ envelope: { sustain: Math.min(1, v * SIGN_CHARACTER[name].sustainMul) } });
+        s.set({
+          envelope: {
+            sustain: Math.min(1, v * SIGN_CHARACTER[name].sustainMul),
+          },
+        });
       });
     },
   },
@@ -942,7 +953,9 @@ async function createEngine() {
       options: {
         oscillator: {
           type: cfg.oscType,
-          ...(cfg.oscType.startsWith("fat") ? { count: cfg.oscCount, spread: cfg.oscSpread } : {}),
+          ...(cfg.oscType.startsWith("fat")
+            ? { count: cfg.oscCount, spread: cfg.oscSpread }
+            : {}),
         },
         envelope: {
           attack: TUNING.attack * cfg.attackMul,
@@ -1057,10 +1070,10 @@ export default function App() {
   const lastAccentRef = useRef(null);
   const colorIndexRef = useRef({});
   const [natalMode, setNatalMode] = useState(false);
-  const [natalDate, setNatalDate] = useState("");
-  const [natalTime, setNatalTime] = useState("");
-  const [natalLat, setNatalLat] = useState("");
-  const [natalLng, setNatalLng] = useState("");
+  const [natalDate, setNatalDate] = useState("1990-06-15");
+  const [natalTime, setNatalTime] = useState("14:30");
+  const [natalLat, setNatalLat] = useState("40.7128");
+  const [natalLng, setNatalLng] = useState("-74.0060");
   const [natalActivations, setNatalActivations] = useState({});
   const initParams = () =>
     Object.fromEntries(
@@ -1071,6 +1084,9 @@ export default function App() {
   const trailingRenderRef = useRef(null);
   const gradientsRef = useRef([]);
   const paramsRef = useRef(initParams());
+  const natalChartDataRef = useRef(null);
+  const natalTimeoutIdsRef = useRef([]);
+  const natalPulseIdsRef = useRef([]);
 
   const setParam = useCallback((name, value) => {
     const p = paramsRef.current;
@@ -1469,7 +1485,12 @@ export default function App() {
       Object.entries(eng.synths).forEach(([name, s]) => {
         s.set({ oscillator: { type: t } });
         if (isFat) {
-          s.set({ oscillator: { count: SIGN_CHARACTER[name].oscCount, spread: SIGN_CHARACTER[name].oscSpread } });
+          s.set({
+            oscillator: {
+              count: SIGN_CHARACTER[name].oscCount,
+              spread: SIGN_CHARACTER[name].oscSpread,
+            },
+          });
           eng.spreadTracker[name] = SIGN_CHARACTER[name].oscSpread;
         }
       });
@@ -1549,8 +1570,44 @@ export default function App() {
     [ensureEngine, natalMode, natalActivations],
   );
 
+  const stopNatalPlayback = useCallback((eng) => {
+    // Cancel pending entry timeouts
+    natalTimeoutIdsRef.current.forEach(id => clearTimeout(id));
+    natalTimeoutIdsRef.current = [];
+
+    // Cancel pulse patterns
+    natalPulseIdsRef.current.forEach(({ sign, eventId }) => {
+      Tone.Transport.clear(eventId);
+    });
+    natalPulseIdsRef.current = [];
+
+    // Release all voices
+    Object.values(eng.synths).forEach(s => s.releaseAll(Tone.now()));
+
+    // Restore reverb wet (may have been ramped for finale bloom)
+    const saved = paramsRef.current || initParams();
+    eng.fx.reverb.wet.rampTo(saved.reverbWet, 0.5);
+
+    // Restore all envelopes (pulse voices had compressed/clamped ADSR)
+    Object.entries(eng.synths).forEach(([name, synth]) => {
+      const cfg = SIGN_CHARACTER[name];
+      synth.set({
+        envelope: {
+          attack:  saved.attack * cfg.attackMul,
+          decay:   saved.decay * cfg.decayMul,
+          sustain: saved.sustain * cfg.sustainMul,
+          release: saved.release * cfg.releaseMul,
+        },
+      });
+    });
+  }, []);
+
   const breathe = useCallback(async () => {
     const eng = await ensureEngine();
+    // Stop any natal composition in progress
+    if (natalPulseIdsRef.current.length > 0 || natalTimeoutIdsRef.current.length > 0) {
+      stopNatalPlayback(eng);
+    }
     const p = paramsRef.current || initParams();
     const release = p.release;
     if (activeSigns.size > 0) {
@@ -1561,7 +1618,8 @@ export default function App() {
           vs.releaseStartLevel = vs.envelopeLevel;
           vs.stage = "release";
           vs.startTime = performance.now();
-          vs.releaseTime = release * SIGN_CHARACTER[sign].releaseMul * VIS_SPEED;
+          vs.releaseTime =
+            release * SIGN_CHARACTER[sign].releaseMul * VIS_SPEED;
         }
       }
       applyAdaptiveVoicing(eng, 0);
@@ -1589,11 +1647,16 @@ export default function App() {
       setShadow(false);
     }
     // Defer osc type change — cycles null → 0 → 1 → ... → 7 → null → ...
-    const next = oscIndex === null ? 0 : (oscIndex + 1 >= OSC_TYPES.length ? null : oscIndex + 1);
+    const next =
+      oscIndex === null
+        ? 0
+        : oscIndex + 1 >= OSC_TYPES.length
+          ? null
+          : oscIndex + 1;
     pendingOscTypeRef.current = next === null ? "per-sign" : OSC_TYPES[next];
     activeOscTypeRef.current = next === null ? null : OSC_TYPES[next];
     setOscIndex(next);
-  }, [activeSigns, ensureEngine, oscIndex, shadow]);
+  }, [activeSigns, ensureEngine, oscIndex, shadow, stopNatalPlayback]);
 
   const toggleShadow = useCallback(async () => {
     const eng = await ensureEngine();
@@ -1620,7 +1683,8 @@ export default function App() {
       const spreadEventId = Tone.Transport.scheduleRepeat(() => {
         let allDone = true;
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          const signType = activeOscTypeRef.current ?? SIGN_CHARACTER[name].oscType;
+          const signType =
+            activeOscTypeRef.current ?? SIGN_CHARACTER[name].oscType;
           if (!signType.startsWith("fat")) return;
           const current = eng.spreadTracker[name];
           if (current < st.oscSpread) {
@@ -1748,9 +1812,10 @@ export default function App() {
       activations[signKey].planets.push(label);
     }
 
+    let ascKey = null;
     if (natalTime && chart.Ascendant?.Sign) {
       const ascSign = chart.Ascendant.Sign.label;
-      const ascKey = Object.keys(SIGNS).find(
+      ascKey = Object.keys(SIGNS).find(
         (k) => k.toLowerCase() === ascSign.toLowerCase(),
       );
       if (ascKey) {
@@ -1763,60 +1828,176 @@ export default function App() {
       }
     }
 
+    // Build per-body sign/degree map for compositional scheduling
+    const bodies = {};
+    for (const [label, bodyKey] of Object.entries(bodyMap)) {
+      const body = chart.CelestialBodies[bodyKey];
+      if (!body) continue;
+      const signName = body.Sign.label;
+      const signKey = Object.keys(SIGNS).find(
+        (k) => k.toLowerCase() === signName.toLowerCase(),
+      );
+      if (!signKey) continue;
+      bodies[label] = {
+        sign: signKey,
+        degree: body.ChartPosition.Ecliptic.DecimalDegrees % 30,
+      };
+    }
+    if (ascKey) {
+      bodies["Ascendant"] = {
+        sign: ascKey,
+        degree: chart.Ascendant.ChartPosition.Ecliptic.DecimalDegrees % 30,
+      };
+    }
+
+    // Extract major aspects for entry-timing computation
+    const aspects = (chart.Aspects?.all || [])
+      .filter(a => a.aspectKey in NATAL_COMP.ASPECT_GAPS)
+      .map(a => ({
+        body1: capitalize(a.point1Key),
+        body2: capitalize(a.point2Key),
+        type: a.aspectKey,
+        orb: a.orb,
+      }));
+
+    natalChartDataRef.current = { activations, bodies, aspects, ascendantSign: ascKey || null };
+
     setNatalActivations(activations);
     setNatalMode(true);
   }, [natalDate, natalTime, natalLat, natalLng]);
 
   const playNatalChart = useCallback(async () => {
-    if (!natalMode) return;
+    if (!natalMode || !natalChartDataRef.current) return;
     const eng = await ensureEngine();
-
-    Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
+    stopNatalPlayback(eng);
 
     setTimeout(() => {
       applyPendingOscType(eng);
-
       const p = paramsRef.current || initParams();
-      const attack = p.attack;
-      const decay = p.decay;
-      const sustain = p.sustain;
-      const release = p.release;
+      const schedule = composeNatalSchedule(natalChartDataRef.current);
+      const timeoutIds = [];
+      const pulseIds = [];
+      const activatedSigns = new Set();
 
-      const now = Tone.now();
-      const next = new Set();
+      schedule.events.forEach(event => {
+        const id = setTimeout(() => {
+          const { sign, mode, pulseRate, detuneCents } = event;
+          const cfg = SIGN_CHARACTER[sign];
+          const note = `${cfg.note}${cfg.octave}`;
 
-      const activatedSigns = KEYBOARD_ORDER.filter(
-        (sign) => natalActivations[sign],
-      );
-      applyAdaptiveVoicing(eng, activatedSigns.length);
-      activatedSigns.forEach((sign, i) => {
-        const cfg = SIGN_CHARACTER[sign];
-        const note = `${cfg.note}${cfg.octave}`;
-        eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
-        eng.synths[sign].triggerAttack(note, now + i * TUNING.stagger, cfg.vel);
-        next.add(sign);
-        const pal = SIGN_COLORS[sign];
-        const ci = colorIndexRef.current[sign] || 0;
-        colorIndexRef.current[sign] = (ci + 1) % 4;
-        const perfNow = performance.now();
-        visualStateRef.current[sign] = {
-          stage: "attack",
-          startTime: perfNow + i * TUNING.stagger * 1000,
-          envelopeLevel: 0,
-          attackTime: attack * cfg.attackMul * VIS_SPEED,
-          decayTime: decay * cfg.decayMul * VIS_SPEED,
-          sustainLevel: Math.min(1, sustain * cfg.sustainMul),
-          releaseTime: release * cfg.releaseMul * VIS_SPEED,
-          releaseStartLevel: 0,
-          activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
-        };
+          eng.synths[sign].set({ detune: detuneCents });
+          activatedSigns.add(sign);
+          applyAdaptiveVoicing(eng, activatedSigns.size);
+
+          // Clamp pulse release to fit within off-cycle (prevents voice stealing)
+          let clampedRelease = null;
+          if (mode === "pulse") {
+            const offTime = pulseRate * (1 - NATAL_COMP.PULSE_DUTY);
+            clampedRelease = Math.min(
+              NATAL_COMP.PULSE_ENVELOPE.release * cfg.releaseMul,
+              Math.max(0.01, offTime - 0.02),  // 20ms safety margin
+            );
+            eng.synths[sign].set({
+              envelope: {
+                attack:  NATAL_COMP.PULSE_ENVELOPE.attack * cfg.attackMul,
+                decay:   NATAL_COMP.PULSE_ENVELOPE.decay * cfg.decayMul,
+                sustain: NATAL_COMP.PULSE_ENVELOPE.sustain * cfg.sustainMul,
+                release: clampedRelease,
+              },
+            });
+            const duty = NATAL_COMP.PULSE_DUTY;
+            // First blip immediately
+            eng.synths[sign].triggerAttackRelease(note, pulseRate * duty, Tone.now(), cfg.vel);
+            // Repeating blips via Transport
+            const eid = Tone.Transport.scheduleRepeat(time => {
+              eng.synths[sign].triggerAttackRelease(note, pulseRate * duty, time, cfg.vel);
+            }, pulseRate, Tone.now() + pulseRate);
+            pulseIds.push({ sign, eventId: eid });
+          } else {
+            // Pad: single sustained triggerAttack
+            eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
+          }
+
+          // Visual state
+          const pal = SIGN_COLORS[sign];
+          const ci = colorIndexRef.current[sign] || 0;
+          colorIndexRef.current[sign] = (ci + 1) % 4;
+          visualStateRef.current[sign] = {
+            stage: "attack",
+            startTime: performance.now(),
+            envelopeLevel: 0,
+            attackTime: (mode === "pulse" ? NATAL_COMP.PULSE_ENVELOPE.attack : p.attack) * cfg.attackMul * VIS_SPEED,
+            decayTime: (mode === "pulse" ? NATAL_COMP.PULSE_ENVELOPE.decay : p.decay) * cfg.decayMul * VIS_SPEED,
+            sustainLevel: Math.min(1, (mode === "pulse" ? NATAL_COMP.PULSE_ENVELOPE.sustain : p.sustain) * cfg.sustainMul),
+            releaseTime: (mode === "pulse" ? clampedRelease : p.release * cfg.releaseMul) * VIS_SPEED,
+            releaseStartLevel: 0,
+            activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
+          };
+
+          setActiveSigns(new Set(activatedSigns));
+          setStatus("playing");
+          if (startLoopRef.current) startLoopRef.current();
+        }, event.time * 1000);
+        timeoutIds.push(id);
       });
 
-      setActiveSigns(next);
-      setStatus("playing");
-      if (startLoopRef.current) startLoopRef.current();
+      // ── Finale: hold full chord, then abrupt cut + reverb wash ──
+      const finaleTime = (schedule.totalDuration + NATAL_COMP.SUSTAIN_HOLD) * 1000;
+      const finaleId = setTimeout(() => {
+        const { FINALE } = NATAL_COMP;
+
+        // 1. Bloom — ramp reverb wet to near-max
+        eng.fx.reverb.wet.rampTo(FINALE.reverbWet, FINALE.reverbRamp);
+
+        // 2. Kill pulse patterns
+        natalPulseIdsRef.current.forEach(({ sign: s, eventId }) => {
+          Tone.Transport.clear(eventId);
+        });
+        natalPulseIdsRef.current = [];
+
+        // 3. Abrupt cut — ultra-short release, release all voices
+        Object.entries(eng.synths).forEach(([, synth]) => {
+          synth.set({ envelope: { release: FINALE.cutRelease } });
+          synth.releaseAll(Tone.now());
+        });
+
+        // 4. Visual release for all active signs
+        for (const sign of activatedSigns) {
+          const vs = visualStateRef.current[sign];
+          if (vs) {
+            vs.releaseStartLevel = vs.envelopeLevel;
+            vs.stage = "release";
+            vs.startTime = performance.now();
+            vs.releaseTime = FINALE.cutRelease * VIS_SPEED;
+          }
+        }
+        setActiveSigns(new Set());
+        setStatus("ready");
+
+        // 5. After reverb tail decays, restore everything
+        const restoreId = setTimeout(() => {
+          const saved = paramsRef.current || initParams();
+          eng.fx.reverb.wet.rampTo(saved.reverbWet, 1.0);
+          Object.entries(eng.synths).forEach(([name, synth]) => {
+            const cfg = SIGN_CHARACTER[name];
+            synth.set({
+              envelope: {
+                attack:  saved.attack * cfg.attackMul,
+                decay:   saved.decay * cfg.decayMul,
+                sustain: saved.sustain * cfg.sustainMul,
+                release: saved.release * cfg.releaseMul,
+              },
+            });
+          });
+        }, FINALE.tailTime * 1000);
+        natalTimeoutIdsRef.current = [restoreId];
+      }, finaleTime);
+      timeoutIds.push(finaleId);
+
+      natalTimeoutIdsRef.current = timeoutIds;
+      natalPulseIdsRef.current = pulseIds;
     }, TUNING.retriggerGap);
-  }, [natalMode, natalActivations, ensureEngine]);
+  }, [natalMode, ensureEngine, stopNatalPlayback]);
 
   return (
     <>
@@ -1895,9 +2076,18 @@ export default function App() {
             <span className="cel-oracle-line">. .</span>
             <span className="cel-oracle-line">. . .</span>
             <span className="cel-oracle-line">. .&nbsp; l o o k &nbsp;. .</span>
-            <span className="cel-oracle-line">. . . &nbsp;w i t h i n&nbsp; . . .</span>
+            <span className="cel-oracle-line">
+              . . . &nbsp;w i t h i n&nbsp; . . .
+            </span>
+            <span className="cel-oracle-line">. . . . . . . .</span>
+            <span className="cel-oracle-line">. . . . . .</span>
+            <span className="cel-oracle-line">. . . . </span>
+            <span className="cel-oracle-line">. . </span>
+            <span className="cel-oracle-line">.</span>
           </summary>
-          <span className="cel-osc-indicator">{oscIndex === null ? "per-sign" : OSC_TYPES[oscIndex]}</span>
+          <span className="cel-osc-indicator">
+            {oscIndex === null ? "per-sign" : OSC_TYPES[oscIndex]}
+          </span>
           <div className="cel-macros">
             {groupedKnobs.map((item) =>
               item.type === "row" ? (
@@ -1969,40 +2159,51 @@ export default function App() {
           </button>
         </details>
 
-        <details className="cel-natal">
-          <summary className="cel-natal-summary">Natal Chart</summary>
+        <div className="cel-natal">
           <div className="cel-natal-body">
             <div className="cel-natal-inputs">
-              <input
-                type="date"
-                className="cel-natal-input"
-                value={natalDate}
-                onChange={(e) => setNatalDate(e.target.value)}
-                placeholder="Birth date"
-              />
-              <input
-                type="time"
-                className="cel-natal-input"
-                value={natalTime}
-                onChange={(e) => setNatalTime(e.target.value)}
-                placeholder="Birth time"
-              />
-              <input
-                type="number"
-                className="cel-natal-input"
-                value={natalLat}
-                onChange={(e) => setNatalLat(e.target.value)}
-                placeholder="Latitude"
-                step="0.01"
-              />
-              <input
-                type="number"
-                className="cel-natal-input"
-                value={natalLng}
-                onChange={(e) => setNatalLng(e.target.value)}
-                placeholder="Longitude"
-                step="0.01"
-              />
+              <label className="cel-natal-label">
+                <span>Birth date</span>
+                <input
+                  type="date"
+                  className="cel-natal-input"
+                  value={natalDate}
+                  onChange={(e) => setNatalDate(e.target.value)}
+                  placeholder="Birth date"
+                />
+              </label>
+              <label className="cel-natal-label">
+                <span>Birth time (optional)</span>
+                <input
+                  type="time"
+                  className="cel-natal-input"
+                  value={natalTime}
+                  onChange={(e) => setNatalTime(e.target.value)}
+                  placeholder="Birth time"
+                />
+              </label>
+              <label className="cel-natal-label">
+                <span>Latitude</span>
+                <input
+                  type="number"
+                  className="cel-natal-input"
+                  value={natalLat}
+                  onChange={(e) => setNatalLat(e.target.value)}
+                  placeholder="Latitude"
+                  step="0.01"
+                />
+              </label>
+              <label className="cel-natal-label">
+                <span>Longitude</span>
+                <input
+                  type="number"
+                  className="cel-natal-input"
+                  value={natalLng}
+                  onChange={(e) => setNatalLng(e.target.value)}
+                  placeholder="Longitude"
+                  step="0.01"
+                />
+              </label>
             </div>
             <div className="cel-natal-actions">
               <button
@@ -2032,7 +2233,7 @@ export default function App() {
               </div>
             )}
           </div>
-        </details>
+        </div>
 
         <div className="cel-footer">
           <p>
@@ -2092,7 +2293,7 @@ const CSS = `
 
   .cel-title {
     font-family: ${FONTS.title};
-    font-size: 2.4rem;
+    font-size: clamp(1.6rem, 5vw, 2.4rem);
     font-weight: 400;
     letter-spacing: 0.15em;
     color: #f0e8ff;
@@ -2537,18 +2738,6 @@ const CSS = `
     margin-bottom: 1.5rem;
   }
 
-  .cel-natal-summary {
-    cursor: pointer;
-    color: #8878a0;
-    font-size: 0.85rem;
-    text-align: center;
-    padding: 0.5rem;
-    letter-spacing: 0.05em;
-    list-style: none;
-  }
-
-  .cel-natal-summary::-webkit-details-marker { display: none; }
-
   .cel-natal-body {
     padding: 0.8rem 0;
   }
@@ -2572,6 +2761,9 @@ const CSS = `
   }
 
   .cel-natal-input::placeholder { color: #504868; }
+
+  .cel-natal-label { display: flex; flex-direction: column; gap: 2px; }
+  .cel-natal-label span { font-size: 0.65rem; color: #706888; letter-spacing: 0.05em; }
 
   .cel-natal-actions {
     display: flex;
