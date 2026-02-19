@@ -93,6 +93,7 @@ import {
   ACTIVE_CHAIN,
   LISTEN_PRESETS,
   OSC_TYPES,
+  OCTAVE_GAIN,
 } from "./tuning";
 
 // ─── Font Constants ───────────────────────────────────────────
@@ -522,6 +523,11 @@ const Knob = React.memo(function Knob({
 let _enginePromise = null; // creation lock — prevents duplicate contexts
 
 async function createEngine() {
+  // iOS: route through media channel — bypasses mute switch (iOS 17+)
+  if ("audioSession" in navigator) {
+    navigator.audioSession.type = "playback";
+  }
+
   const ctx = new Tone.Context({
     latencyHint: "playback",
     sampleRate: TUNING.sampleRate,
@@ -534,6 +540,15 @@ async function createEngine() {
   if (ctx.rawContext.state !== "running") {
     await ctx.rawContext.resume();
   }
+
+  // iOS: silent keepalive prevents context suspension on lock/background.
+  // Pre-iOS 17 fallback for mute switch bypass (inaudible at 1e-37 gain).
+  const keepAlive = ctx.rawContext.createOscillator();
+  const muteGain = ctx.rawContext.createGain();
+  muteGain.gain.value = 1e-37;
+  keepAlive.connect(muteGain);
+  muteGain.connect(ctx.rawContext.destination);
+  keepAlive.start();
 
   // ─── FX chain (constructed before synths so panners have a target) ───
 
@@ -766,7 +781,7 @@ async function createEngine() {
           sustain: TUNING.sustain,
           release: TUNING.release,
         },
-        volume: -9,
+        volume: -9 + (OCTAVE_GAIN[cfg.octave] || 0),
       },
     });
     synth.set({ detune: cfg.detuneCents });
@@ -983,6 +998,39 @@ export default function App() {
   useEffect(() => {
     shadowRef.current = shadow;
   }, [shadow]);
+
+  // ─── iOS audio lifecycle recovery ─────────────────────────────
+  // Handles: interrupted state (phone call, Siri, notifications),
+  // tab backgrounding, screen lock, bfcache restore.
+  useEffect(() => {
+    const tryResume = async () => {
+      try {
+        if (Tone.getContext()?.rawContext?.state !== "running") {
+          await Tone.start();
+          const raw = Tone.getContext()?.rawContext;
+          if (raw && raw.state !== "running") await raw.resume();
+        }
+      } catch (_) {}
+    };
+
+    // Resume on tab/app restore
+    const onVisibility = () => { if (!document.hidden) tryResume(); };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Resume on any touch (catches interrupted state after phone calls)
+    const onTouch = () => tryResume();
+    document.addEventListener("touchend", onTouch, { passive: true });
+
+    // Handle bfcache restore (user hits back)
+    const onPageShow = (e) => { if (e.persisted) tryResume(); };
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("touchend", onTouch);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, []);
 
   // ─── Position cache (eliminates getBoundingClientRect in rAF) ──
   useEffect(() => {
@@ -1226,7 +1274,6 @@ export default function App() {
         const next = new Set(prev);
         if (next.has(sign)) {
           eng.synths[sign].triggerRelease(note, Tone.now());
-          // Restore default detune on release
           eng.synths[sign].set({ detune: cfg.detuneCents });
           next.delete(sign);
           const vs = visualStateRef.current[sign];
@@ -1250,7 +1297,6 @@ export default function App() {
             });
             pendingOscTypeRef.current = null;
           }
-          // Apply natal detune if in natal mode
           if (natalMode && natalActivations[sign]) {
             eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
           }
@@ -1373,7 +1419,7 @@ export default function App() {
       // Smooth detune drift — lerp toward random targets
       const detuneId = Tone.Transport.scheduleRepeat(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          const base = SIGNS[name]?.detuneCents || 0;
+          const base = (SIGNS[name]?.detuneCents || 0);
           const current = eng.detuneTracker[name] ?? base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
           const next = current + (target - current) * 0.3;
@@ -1645,7 +1691,7 @@ export default function App() {
           </button>
         </div>
 
-        <details className="cel-veil" open>
+        <details className="cel-veil">
           <summary>Controls</summary>
           <span className="cel-osc-indicator">{OSC_TYPES[oscIndex]}</span>
           <div className="cel-macros">

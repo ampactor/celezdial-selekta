@@ -481,3 +481,33 @@ export const ZODIAC_NOTES = {
   sagittarius: "Bb",
   capricorn:   "B",
 };
+
+// ─── Fletcher-Munson Loudness Compensation ─────────────────
+// Per-octave volume offset (dB) applied to synth gain.
+// Flattens perceived loudness across the 4-octave range at moderate
+// listening levels (~70 phon). Octave 4 is the reference (0 dB) —
+// human hearing is most sensitive in the 1–4 kHz range.
+export const OCTAVE_GAIN = { 2: 4, 3: 2, 4: 0, 5: -1 };
+
+// ─── Cousto Planetary Tuning ───────────────────────────────
+// Hans Cousto's "Cosmic Octave" — audible frequencies derived from
+// planetary orbital periods, octave-transposed into hearing range.
+// Each sign is detuned by its traditional ruling planet's deviation
+// from 12-TET. cents = 1200 × log2(f_cousto / f_nearest_ET).
+//
+// Signs sharing a ruler share the same offset — pairs that are
+// "in tune" with each other through planetary resonance.
+export const COUSTO_DETUNE = {
+  Aquarius:     12,  // Saturn    — 147.85 Hz vs D3 146.83
+  Pisces:      -13,  // Jupiter   — 183.58 Hz vs F#3 185.00
+  Aries:       -25,  // Mars      — 144.72 Hz vs D3 146.83
+  Taurus:       10,  // Venus     — 221.23 Hz vs A3 220.00
+  Gemini:       33,  // Mercury   — 141.27 Hz vs C#3 138.59
+  Cancer:       23,  // Moon      — 210.42 Hz vs G#3 207.65
+  Leo:          38,  // Sun       — 126.22 Hz vs B2 123.47
+  Virgo:        33,  // Mercury   — (shared ruler with Gemini)
+  Libra:        10,  // Venus     — (shared ruler with Taurus)
+  Scorpio:     -25,  // Mars      — (shared ruler with Aries)
+  Sagittarius: -13,  // Jupiter   — (shared ruler with Pisces)
+  Capricorn:    12,  // Saturn    — (shared ruler with Aquarius)
+};
