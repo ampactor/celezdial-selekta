@@ -50,7 +50,7 @@
 //
 // engineRef      — Tone.js audio graph, created on first interaction.
 //                  Null until user clicks (browser autoplay policy).
-// activePlanets  — Set<string> of currently sounding planet names.
+// activeSigns    — Set<string> of currently sounding sign names.
 // params         — Object of 35 direct knob values. Each knob maps
 //                  1:1 to an engine parameter via KNOB_MAP. Shadow
 //                  mode temporarily overrides FX params; when Shadow
@@ -115,158 +115,38 @@ const FONTS = {
   mono: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
 };
 
-// 12 planets — chromatic mapping C through B.
+// 12 zodiac signs — chromatic mapping C through B.
 // Each carries: note class, microtonal detune from 12-TET (cents),
 // octave, velocity (mix weight), glyph, fixed stereo base,
 // pan group, osc count, osc spread.
-const PLANETS = {
-  Pluto: {
-    octave: 2,
-    vel: 0.7,
-    glyph: "\u2647",
-    note: "C",
-    detuneCents: 0,
-    panBase: -0.62,
-    panGroup: "A",
-    oscCount: 2,
-    oscSpread: 55,
-  },
-  Neptune: {
-    octave: 2,
-    vel: 0.6,
-    glyph: "\u2646",
-    note: "Db",
-    detuneCents: 0,
-    panBase: 0.46,
-    panGroup: "D",
-    oscCount: 2,
-    oscSpread: 40,
-  },
-  Jupiter: {
-    octave: 2,
-    vel: 0.8,
-    glyph: "\u2643",
-    note: "D",
-    detuneCents: 0,
-    panBase: -0.85,
-    panGroup: "A",
-    oscCount: 2,
-    oscSpread: 55,
-  },
-  Uranus: {
-    octave: 3,
-    vel: 0.5,
-    glyph: "\u2645",
-    note: "Eb",
-    detuneCents: 0,
-    panBase: 0.72,
-    panGroup: "D",
-    oscCount: 3,
-    oscSpread: 40,
-  },
-  Saturn: {
-    octave: 3,
-    vel: 0.6,
-    glyph: "\u2644",
-    note: "E",
-    detuneCents: 0,
-    panBase: -0.15,
-    panGroup: "B",
-    oscCount: 3,
-    oscSpread: 45,
-  },
-  Chiron: {
-    octave: 3,
-    vel: 0.4,
-    glyph: "\u26B7",
-    note: "F",
-    detuneCents: 0,
-    panBase: 0.62,
-    panGroup: "D",
-    oscCount: 3,
-    oscSpread: 40,
-  },
-  Mars: {
-    octave: 4,
-    vel: 0.7,
-    glyph: "\u2642",
-    note: "Gb",
-    detuneCents: 0,
-    panBase: -0.38,
-    panGroup: "B",
-    oscCount: 3,
-    oscSpread: 50,
-  },
-  Sun: {
-    octave: 4,
-    vel: 1.0,
-    glyph: "\u2609",
-    note: "G",
-    detuneCents: 0,
-    panBase: 0.15,
-    panGroup: "C",
-    oscCount: 3,
-    oscSpread: 45,
-  },
-  Venus: {
-    octave: 4,
-    vel: 0.5,
-    glyph: "\u2640",
-    note: "Ab",
-    detuneCents: 0,
-    panBase: 0.38,
-    panGroup: "C",
-    oscCount: 3,
-    oscSpread: 45,
-  },
-  Ascendant: {
-    octave: 4,
-    vel: 0.6,
-    glyph: "AC",
-    note: "A",
-    detuneCents: 0,
-    panBase: 0.0,
-    panGroup: "C",
-    oscCount: 3,
-    oscSpread: 45,
-  },
-  Mercury: {
-    octave: 5,
-    vel: 0.5,
-    glyph: "\u263F",
-    note: "Bb",
-    detuneCents: 0,
-    panBase: 0.08,
-    panGroup: "D",
-    oscCount: 3,
-    oscSpread: 40,
-  },
-  Moon: {
-    octave: 5,
-    vel: 0.4,
-    glyph: "\u263D",
-    note: "B",
-    detuneCents: 0,
-    panBase: -0.23,
-    panGroup: "A",
-    oscCount: 3,
-    oscSpread: 40,
-  },
+const SIGNS = {
+  Aquarius:    { octave: 2, vel: 0.7, glyph: "\u2652", note: "C",  detuneCents: 0, panBase: -0.62, panGroup: "A", oscCount: 2, oscSpread: 55 },
+  Pisces:      { octave: 2, vel: 0.6, glyph: "\u2653", note: "Db", detuneCents: 0, panBase: 0.46,  panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Aries:       { octave: 2, vel: 0.8, glyph: "\u2648", note: "D",  detuneCents: 0, panBase: -0.85, panGroup: "A", oscCount: 2, oscSpread: 55 },
+  Taurus:      { octave: 3, vel: 0.5, glyph: "\u2649", note: "Eb", detuneCents: 0, panBase: 0.72,  panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Gemini:      { octave: 3, vel: 0.6, glyph: "\u264A", note: "E",  detuneCents: 0, panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
+  Cancer:      { octave: 3, vel: 0.4, glyph: "\u264B", note: "F",  detuneCents: 0, panBase: 0.62,  panGroup: "D", oscCount: 3, oscSpread: 40 },
+  Leo:         { octave: 4, vel: 0.7, glyph: "\u264C", note: "Gb", detuneCents: 0, panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
+  Virgo:       { octave: 4, vel: 1.0, glyph: "\u264D", note: "G",  detuneCents: 0, panBase: 0.15,  panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Libra:       { octave: 4, vel: 0.5, glyph: "\u264E", note: "Ab", detuneCents: 0, panBase: 0.38,  panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Scorpio:     { octave: 4, vel: 0.6, glyph: "\u264F", note: "A",  detuneCents: 0, panBase: 0.0,   panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Sagittarius: { octave: 5, vel: 0.5, glyph: "\u2650", note: "Bb", detuneCents: 0, panBase: 0.08,  panGroup: "D", oscCount: 3, oscSpread: 40 },
+  Capricorn:   { octave: 5, vel: 0.4, glyph: "\u2651", note: "B",  detuneCents: 0, panBase: -0.23, panGroup: "A", oscCount: 3, oscSpread: 40 },
 };
 
-const PLANET_COLORS = {
-  Sun: ["#f28320", "#f15d22", "#d94126", "#a41d21", "#0c0c0c"],
-  Mercury: ["#595856", "#c0bdbc", "#8d8a88", "#f5f6f7", "#0c0c0c"],
-  Venus: ["#878a8d", "#d9b292", "#f4dbc4", "#414141", "#0c0c0c"],
-  Mars: ["#dabd9d", "#8c5c4a", "#f27b5f", "#c26d5c", "#0c0c0c"],
-  Jupiter: ["#282311", "#c08237", "#bfaf9b", "#c0a480", "#0c0c0c"],
-  Uranus: ["#3f575a", "#688a8d", "#95bbbe", "#d0ecf0", "#0c0c0c"],
-  Neptune: ["#657ba5", "#7495bf", "#4e5d74", "#779ebf", "#0c0c0c"],
-  Pluto: ["#4a3a5c", "#7b6898", "#a08cb8", "#c8b8d8", "#0c0c0c"],
-  Saturn: ["#8b7355", "#c4a96d", "#e0c98f", "#5a4a32", "#0c0c0c"],
-  Chiron: ["#2e6b5a", "#4a9e82", "#78c4a8", "#1a4238", "#0c0c0c"],
-  Moon: ["#c0c0c8", "#8888a0", "#e8e8f0", "#606078", "#0c0c0c"],
-  Ascendant: ["#d4af37", "#f0d060", "#a08020", "#f8e888", "#0c0c0c"],
+const SIGN_COLORS = {
+  Aquarius:    ["#3f575a","#688a8d","#95bbbe","#d0ecf0","#0c0c0c"],
+  Pisces:      ["#657ba5","#7495bf","#4e5d74","#779ebf","#0c0c0c"],
+  Aries:       ["#dabd9d","#8c5c4a","#f27b5f","#c26d5c","#0c0c0c"],
+  Taurus:      ["#878a8d","#d9b292","#f4dbc4","#414141","#0c0c0c"],
+  Gemini:      ["#595856","#c0bdbc","#8d8a88","#f5f6f7","#0c0c0c"],
+  Cancer:      ["#c0c0c8","#8888a0","#e8e8f0","#606078","#0c0c0c"],
+  Leo:         ["#f28320","#f15d22","#d94126","#a41d21","#0c0c0c"],
+  Virgo:       ["#8d8a88","#595856","#c0bdbc","#f5f6f7","#0c0c0c"],
+  Libra:       ["#d9b292","#878a8d","#f4dbc4","#414141","#0c0c0c"],
+  Scorpio:     ["#4a3a5c","#7b6898","#a08cb8","#c8b8d8","#0c0c0c"],
+  Sagittarius: ["#282311","#c08237","#bfaf9b","#c0a480","#0c0c0c"],
+  Capricorn:   ["#8b7355","#c4a96d","#e0c98f","#5a4a32","#0c0c0c"],
 };
 const COLOR_OFF = "#0c0c0c";
 const KNOB_DEFAULT_COLOR = "#9070cc";
@@ -279,30 +159,10 @@ function rgbToHex(r, g, b) {
   return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 }
 
-const KEYBOARD_ORDER = Object.keys(PLANETS);
+const KEYBOARD_ORDER = Object.keys(SIGNS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
 const SHARP_POSITIONS = ["10%", "24%", "53%", "67%", "81%"];
 // OSC_TYPES imported from tuning.js — 8 types cycled by Breathe
-
-// ─── Tuning Constants (imported from tuning.js) ─────────────
-
-// Circle-of-fifths mapping: Aries=C (spring/tonal center), sharps accumulate
-// through spring/summer, flats through fall/winter. Libra lands on Gb
-// (equidistant in sharps/flats — mirrors Libra's balance).
-const ZODIAC_NOTES = {
-  aries: "C",
-  taurus: "G",
-  gemini: "D",
-  cancer: "A",
-  leo: "E",
-  virgo: "B",
-  libra: "Gb",
-  scorpio: "Db",
-  sagittarius: "Ab",
-  capricorn: "Eb",
-  aquarius: "Bb",
-  pisces: "F",
-};
 
 // ─── Knob Mapping ────────────────────────────────────────────
 
@@ -672,6 +532,7 @@ async function createEngine() {
 
   const chebyshev = new Tone.Chebyshev(TUNING.chebyOrder);
   chebyshev.wet.value = TUNING.chebyWet;
+  chebyshev.oversample = "4x";
 
   const eq3 = new Tone.EQ3({
     high: TUNING.eqHigh,
@@ -715,6 +576,9 @@ async function createEngine() {
     dampening: TUNING.reverbDamp,
   });
   reverb.wet.value = TUNING.reverbWet;
+
+  const reverbPreDelay = new Tone.Delay({ delayTime: 0.025, maxDelay: 0.1 });
+  reverbPreDelay.connect(reverb);
 
   // Damp sweep — sinusoidal modulation of reverb dampening.
   // Sweeps the comb filter cutoff for evolving resonance morphing.
@@ -780,10 +644,17 @@ async function createEngine() {
 
   // tanh soft clip — preserves Freeverb resonant peaks that Limiter(-1) killed
   const softClip = new Tone.WaveShaper((val) => Math.tanh(val), 4096);
-  softClip.oversample = "2x";
+  softClip.oversample = "4x";
 
   // Summing bus — all panners feed here so voices intermodulate through Chebyshev
   const sumBus = new Tone.Gain(1);
+
+  const highpass = new Tone.Filter({
+    frequency: TUNING.highpassFreq,
+    type: "highpass",
+    rolloff: TUNING.highpassRolloff,
+  });
+  sumBus.connect(highpass);
 
   // ─── Chain builder ───
   function wireChain(src, nodes, config) {
@@ -820,7 +691,7 @@ async function createEngine() {
     chebyshev,
     eq3,
     vibrato,
-    reverb,
+    reverb: reverbPreDelay, // chain sees this as "reverb" node, pre-delay feeds actual reverb
     chorus,
     monitorEQ,
     softClip,
@@ -831,7 +702,7 @@ async function createEngine() {
     echoInputGain,
   };
   const { bypassState, bypassable } = wireChain(
-    sumBus,
+    highpass,
     chainNodes,
     CHAINS[ACTIVE_CHAIN],
   );
@@ -841,27 +712,37 @@ async function createEngine() {
     const b = bypassable[name];
     try {
       if (bypassed) {
-        b.prev.disconnect(b.node);
-        b.node.disconnect(b.next);
-        b.prev.connect(b.next);
+        if (b.node.wet) {
+          b.node.wet.rampTo(0, 0.05);
+          setTimeout(() => {
+            try {
+              b.prev.disconnect(b.node);
+              b.node.disconnect(b.next);
+              b.prev.connect(b.next);
+            } catch (e) { /* ignore */ }
+          }, 60);
+        } else {
+          b.prev.disconnect(b.node);
+          b.node.disconnect(b.next);
+          b.prev.connect(b.next);
+        }
       } else {
         b.prev.disconnect(b.next);
         b.prev.connect(b.node);
         b.node.connect(b.next);
+        if (b.node.wet) b.node.wet.rampTo(b.node.wet.value || 1, 0.05);
       }
       bypassState[name] = bypassed;
-    } catch (e) {
-      /* ignore disconnect errors during rapid toggling */
-    }
+    } catch (e) { /* ignore */ }
   }
 
-  // ─── Per-planet synths + panners ──────────────────────────
+  // ─── Per-sign synths + panners ──────────────────────────
 
   const synths = {};
   const panners = {};
   const spreadTracker = {};
 
-  Object.entries(PLANETS).forEach(([name, cfg]) => {
+  Object.entries(SIGNS).forEach(([name, cfg]) => {
     const panner = new Tone.Panner(cfg.panBase);
     const synth = new Tone.PolySynth(Tone.Synth, {
       maxPolyphony: 2,
@@ -878,7 +759,7 @@ async function createEngine() {
           sustain: TUNING.sustain,
           release: TUNING.release,
         },
-        volume: -6,
+        volume: -9,
       },
     });
     synth.set({ detune: cfg.detuneCents });
@@ -896,7 +777,7 @@ async function createEngine() {
     const lfo = new Tone.LFO({ frequency: TUNING.panLfoFreq, min: -1, max: 1 });
     lfo.amplitude.value = TUNING.panLfoAmplitude;
     lfo.start();
-    Object.entries(PLANETS).forEach(([name, cfg]) => {
+    Object.entries(SIGNS).forEach(([name, cfg]) => {
       if (cfg.panGroup === group) lfo.connect(panners[name].pan);
     });
     panLfos[group] = lfo;
@@ -932,6 +813,7 @@ async function createEngine() {
       Object.values(panLfos).forEach((l) => l.dispose());
       [
         sumBus,
+        highpass,
         chebyshev,
         distortion,
         eq3,
@@ -943,6 +825,7 @@ async function createEngine() {
         echoCrossfade,
         echoInputGain,
         chorus,
+        reverbPreDelay,
         reverb,
         phaser,
         monitorEQ,
@@ -957,7 +840,7 @@ async function createEngine() {
 export default function App() {
   const engineRef = useRef(null);
   const [status, setStatus] = useState("idle");
-  const [activePlanets, setActivePlanets] = useState(new Set());
+  const [activeSigns, setActiveSigns] = useState(new Set());
   const [shadow, setShadow] = useState(false);
   const [oscIndex, setOscIndex] = useState(0);
   const [listenPreset, setListenPreset] = useState("headphones");
@@ -982,7 +865,7 @@ export default function App() {
   const [natalTime, setNatalTime] = useState("");
   const [natalLat, setNatalLat] = useState("");
   const [natalLng, setNatalLng] = useState("");
-  const [natalNotes, setNatalNotes] = useState({});
+  const [natalActivations, setNatalActivations] = useState({});
   const initParams = () =>
     Object.fromEntries(Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]));
   const [params, setParams] = useState(initParams);
@@ -1048,7 +931,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
+      shadowIntervalsRef.current.forEach((id) => Tone.Transport.clear(id));
       if (engineRef.current) {
         engineRef.current.dispose();
         engineRef.current = null;
@@ -1070,11 +953,11 @@ export default function App() {
       if (!rootEl) return;
       const rr = rootEl.getBoundingClientRect();
       const positions = {};
-      for (const planet of KEYBOARD_ORDER) {
-        const el = keyRefsRef.current[planet];
+      for (const sign of KEYBOARD_ORDER) {
+        const el = keyRefsRef.current[sign];
         if (el) {
           const kr = el.getBoundingClientRect();
-          positions[planet] = {
+          positions[sign] = {
             cx: kr.left + kr.width / 2 - rr.left,
             cy: kr.top + kr.height / 2 - rr.top,
           };
@@ -1117,8 +1000,8 @@ export default function App() {
       const gradients = [];
       let hasActive = false;
 
-      for (const planet in visualStateRef.current) {
-        const vs = visualStateRef.current[planet];
+      for (const sign in visualStateRef.current) {
+        const vs = visualStateRef.current[sign];
         if (!vs) continue;
         hasActive = true;
         if (now < vs.startTime) continue;
@@ -1170,21 +1053,21 @@ export default function App() {
 
         // Key glow — write only when changed (dirty flag)
         const glowAlpha = level > 0.01 ? Math.min(level * 0.7, 0.45) : 0;
-        const el = keyRefsRef.current[planet];
+        const el = keyRefsRef.current[sign];
         if (el) {
-          const prevGlow = lastGlowRef.current[planet];
+          const prevGlow = lastGlowRef.current[sign];
           if (prevGlow !== glowAlpha) {
             el.style.setProperty(
               "--glow-hue",
               glowAlpha > 0 ? `rgb(${r},${g},${b})` : "transparent",
             );
             el.style.setProperty("--glow-opacity", String(glowAlpha));
-            lastGlowRef.current[planet] = glowAlpha;
+            lastGlowRef.current[sign] = glowAlpha;
           }
         }
 
         // Emanation — push data for canvas draw (no strings, no getBoundingClientRect)
-        const pos = keyPositionsRef.current[planet];
+        const pos = keyPositionsRef.current[sign];
         if (pos && level > 0.01) {
           gradients.push({
             cx: pos.cx,
@@ -1207,9 +1090,9 @@ export default function App() {
         if (vs.stage === "idle") {
           if (el) {
             el.style.setProperty("--glow-opacity", "0");
-            lastGlowRef.current[planet] = 0;
+            lastGlowRef.current[sign] = 0;
           }
-          visualStateRef.current[planet] = null; // preserve V8 hidden class
+          visualStateRef.current[sign] = null; // preserve V8 hidden class
         }
       }
 
@@ -1284,25 +1167,25 @@ export default function App() {
     return engineRef.current;
   }, []);
 
-  const togglePlanet = useCallback(
-    async (planet) => {
+  const toggleSign = useCallback(
+    async (sign) => {
       const eng = await ensureEngine();
-      const cfg = PLANETS[planet];
+      const cfg = SIGNS[sign];
       if (!cfg) return;
-      const noteClass =
-        natalMode && natalNotes[planet] ? natalNotes[planet] : cfg.note;
-      const note = `${noteClass}${cfg.octave}`;
+      const note = `${cfg.note}${cfg.octave}`;
       const p = paramsRef.current || initParams();
       const attack = p.attack;
       const decay = p.decay;
       const sustain = p.sustain;
       const release = p.release;
-      setActivePlanets((prev) => {
+      setActiveSigns((prev) => {
         const next = new Set(prev);
-        if (next.has(planet)) {
-          eng.synths[planet].triggerRelease(note, Tone.now());
-          next.delete(planet);
-          const vs = visualStateRef.current[planet];
+        if (next.has(sign)) {
+          eng.synths[sign].triggerRelease(note, Tone.now());
+          // Restore default detune on release
+          eng.synths[sign].set({ detune: cfg.detuneCents });
+          next.delete(sign);
+          const vs = visualStateRef.current[sign];
           if (vs) {
             vs.releaseStartLevel = vs.envelopeLevel;
             vs.stage = "release";
@@ -1317,18 +1200,22 @@ export default function App() {
             Object.entries(eng.synths).forEach(([name, s]) => {
               s.set({ oscillator: { type: t } });
               if (isFat) {
-                s.set({ oscillator: { count: PLANETS[name].oscCount, spread: PLANETS[name].oscSpread } });
-                eng.spreadTracker[name] = PLANETS[name].oscSpread;
+                s.set({ oscillator: { count: SIGNS[name].oscCount, spread: SIGNS[name].oscSpread } });
+                eng.spreadTracker[name] = SIGNS[name].oscSpread;
               }
             });
             pendingOscTypeRef.current = null;
           }
-          eng.synths[planet].triggerAttack(note, Tone.now(), cfg.vel);
-          next.add(planet);
-          const pal = PLANET_COLORS[planet];
-          const ci = colorIndexRef.current[planet] || 0;
-          colorIndexRef.current[planet] = (ci + 1) % 4;
-          visualStateRef.current[planet] = {
+          // Apply natal detune if in natal mode
+          if (natalMode && natalActivations[sign]) {
+            eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
+          }
+          eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
+          next.add(sign);
+          const pal = SIGN_COLORS[sign];
+          const ci = colorIndexRef.current[sign] || 0;
+          colorIndexRef.current[sign] = (ci + 1) % 4;
+          visualStateRef.current[sign] = {
             stage: "attack",
             startTime: performance.now(),
             envelopeLevel: 0,
@@ -1345,17 +1232,17 @@ export default function App() {
         return next;
       });
     },
-    [ensureEngine, natalMode, natalNotes],
+    [ensureEngine, natalMode, natalActivations],
   );
 
   const breathe = useCallback(async () => {
     const eng = await ensureEngine();
     const p = paramsRef.current || initParams();
     const release = p.release;
-    if (activePlanets.size > 0) {
+    if (activeSigns.size > 0) {
       Object.values(eng.synths).forEach((s) => s.releaseAll(Tone.now()));
-      for (const planet of activePlanets) {
-        const vs = visualStateRef.current[planet];
+      for (const sign of activeSigns) {
+        const vs = visualStateRef.current[sign];
         if (vs) {
           vs.releaseStartLevel = vs.envelopeLevel;
           vs.stage = "release";
@@ -1363,7 +1250,7 @@ export default function App() {
           vs.releaseTime = release;
         }
       }
-      setActivePlanets(new Set());
+      setActiveSigns(new Set());
       setStatus("ready");
     }
     if (shadow) {
@@ -1371,7 +1258,7 @@ export default function App() {
         eng.fx;
       const rt = SHADOW.rampTime;
       const saved = paramsRef.current;
-      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
+      shadowIntervalsRef.current.forEach((id) => Tone.Transport.clear(id));
       shadowIntervalsRef.current = [];
       reverb.wet.rampTo(saved.reverbWet, rt);
       echoFeedbackGain.gain.rampTo(saved.delayFeedback, rt);
@@ -1385,9 +1272,9 @@ export default function App() {
       });
       if (activeOscTypeRef.current?.startsWith("fat")) {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
-          synth.set({ detune: PLANETS[name].detuneCents });
-          eng.spreadTracker[name] = PLANETS[name].oscSpread;
+          synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
+          synth.set({ detune: SIGNS[name].detuneCents });
+          eng.spreadTracker[name] = SIGNS[name].oscSpread;
         });
       }
       setShadow(false);
@@ -1397,7 +1284,7 @@ export default function App() {
     pendingOscTypeRef.current = OSC_TYPES[next];
     activeOscTypeRef.current = OSC_TYPES[next];
     setOscIndex(next);
-  }, [activePlanets, ensureEngine, oscIndex, shadow]);
+  }, [activeSigns, ensureEngine, oscIndex, shadow]);
 
   const toggleShadow = useCallback(async () => {
     const eng = await ensureEngine();
@@ -1422,7 +1309,7 @@ export default function App() {
       // Slow spread ramp — only for fat oscillator types
       const intervals = [];
       if (activeOscTypeRef.current?.startsWith("fat")) {
-        const spreadId = setInterval(() => {
+        const spreadEventId = Tone.Transport.scheduleRepeat(() => {
           let allDone = true;
           Object.entries(eng.synths).forEach(([name, synth]) => {
             const current = eng.spreadTracker[name];
@@ -1433,31 +1320,26 @@ export default function App() {
               synth.set({ oscillator: { spread: next } });
             }
           });
-          if (allDone) {
-            clearInterval(spreadId);
-            shadowIntervalsRef.current = shadowIntervalsRef.current.filter(
-              (id) => id !== spreadId,
-            );
-          }
-        }, 60);
-        intervals.push(spreadId);
+          if (allDone) Tone.Transport.clear(spreadEventId);
+        }, 0.06);
+        intervals.push(spreadEventId);
       }
 
       // Smooth detune drift — lerp toward random targets
-      const detuneId = setInterval(() => {
+      const detuneId = Tone.Transport.scheduleRepeat(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          const base = PLANETS[name]?.detuneCents || 0;
+          const base = SIGNS[name]?.detuneCents || 0;
           const current = synth.get().detune || base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
           const next = current + (target - current) * 0.3;
           synth.set({ detune: next });
         });
-      }, 1200);
+      }, 1.2);
       intervals.push(detuneId);
 
       shadowIntervalsRef.current = intervals;
     } else {
-      shadowIntervalsRef.current.forEach((id) => clearInterval(id));
+      shadowIntervalsRef.current.forEach((id) => Tone.Transport.clear(id));
       shadowIntervalsRef.current = [];
 
       const rt = st.rampTime;
@@ -1476,9 +1358,9 @@ export default function App() {
 
       if (activeOscTypeRef.current?.startsWith("fat")) {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          synth.set({ oscillator: { spread: PLANETS[name].oscSpread } });
-          synth.set({ detune: PLANETS[name].detuneCents });
-          eng.spreadTracker[name] = PLANETS[name].oscSpread;
+          synth.set({ oscillator: { spread: SIGNS[name].oscSpread } });
+          synth.set({ detune: SIGNS[name].detuneCents });
+          eng.spreadTracker[name] = SIGNS[name].oscSpread;
         });
       }
     }
@@ -1531,7 +1413,6 @@ export default function App() {
       language: "en",
     });
 
-    const notes = {};
     const bodyMap = {
       Sun: "sun",
       Moon: "moon",
@@ -1546,22 +1427,32 @@ export default function App() {
       Chiron: "chiron",
     };
 
-    Object.entries(bodyMap).forEach(([planet, bodyKey]) => {
-      const body = chart.CelestialBodies[bodyKey];
-      if (body && body.Sign && body.Sign.label) {
-        notes[planet] = ZODIAC_NOTES[body.Sign.label.toLowerCase()] || null;
-      }
-    });
+    const activations = {};
 
-    // Ascendant only valid with birth time
-    if (natalTime && chart.Ascendant && chart.Ascendant.Sign) {
-      notes.Ascendant =
-        ZODIAC_NOTES[chart.Ascendant.Sign.label.toLowerCase()] || null;
-    } else {
-      notes.Ascendant = null;
+    for (const [label, bodyKey] of Object.entries(bodyMap)) {
+      const body = chart.CelestialBodies[bodyKey];
+      if (!body) continue;
+      const signName = body.Sign.label;
+      const signKey = Object.keys(SIGNS).find(k => k.toLowerCase() === signName.toLowerCase());
+      if (!signKey) continue;
+      const degree = body.ChartPosition.Ecliptic.DecimalDegrees % 30;
+      const detune = (degree - 15) * TUNING.centsPerDegree;
+      if (!activations[signKey]) activations[signKey] = { planets: [], detuneCents: detune };
+      activations[signKey].planets.push(label);
     }
 
-    setNatalNotes(notes);
+    if (natalTime && chart.Ascendant?.Sign) {
+      const ascSign = chart.Ascendant.Sign.label;
+      const ascKey = Object.keys(SIGNS).find(k => k.toLowerCase() === ascSign.toLowerCase());
+      if (ascKey) {
+        const degree = chart.Ascendant.ChartPosition.Ecliptic.DecimalDegrees % 30;
+        const detune = (degree - 15) * TUNING.centsPerDegree;
+        if (!activations[ascKey]) activations[ascKey] = { planets: [], detuneCents: detune };
+        activations[ascKey].planets.push("Ascendant");
+      }
+    }
+
+    setNatalActivations(activations);
     setNatalMode(true);
   }, [natalDate, natalTime, natalLat, natalLng]);
 
@@ -1579,8 +1470,8 @@ export default function App() {
         Object.entries(eng.synths).forEach(([name, s]) => {
           s.set({ oscillator: { type: t } });
           if (isFat) {
-            s.set({ oscillator: { count: PLANETS[name].oscCount, spread: PLANETS[name].oscSpread } });
-            eng.spreadTracker[name] = PLANETS[name].oscSpread;
+            s.set({ oscillator: { count: SIGNS[name].oscCount, spread: SIGNS[name].oscSpread } });
+            eng.spreadTracker[name] = SIGNS[name].oscSpread;
           }
         });
         pendingOscTypeRef.current = null;
@@ -1595,21 +1486,22 @@ export default function App() {
       const now = Tone.now();
       const next = new Set();
 
-      Object.entries(PLANETS).forEach(([planet, cfg], i) => {
-        const noteClass = natalNotes[planet];
-        if (!noteClass) return;
-        const note = `${noteClass}${cfg.octave}`;
-        eng.synths[planet].triggerAttack(
+      const activatedSigns = KEYBOARD_ORDER.filter(sign => natalActivations[sign]);
+      activatedSigns.forEach((sign, i) => {
+        const cfg = SIGNS[sign];
+        const note = `${cfg.note}${cfg.octave}`;
+        eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
+        eng.synths[sign].triggerAttack(
           note,
           now + i * TUNING.stagger,
           cfg.vel,
         );
-        next.add(planet);
-        const pal = PLANET_COLORS[planet];
-        const ci = colorIndexRef.current[planet] || 0;
-        colorIndexRef.current[planet] = (ci + 1) % 4;
+        next.add(sign);
+        const pal = SIGN_COLORS[sign];
+        const ci = colorIndexRef.current[sign] || 0;
+        colorIndexRef.current[sign] = (ci + 1) % 4;
         const perfNow = performance.now();
-        visualStateRef.current[planet] = {
+        visualStateRef.current[sign] = {
           stage: "attack",
           startTime: perfNow + i * TUNING.stagger * 1000,
           envelopeLevel: 0,
@@ -1622,11 +1514,11 @@ export default function App() {
         };
       });
 
-      setActivePlanets(next);
+      setActiveSigns(next);
       setStatus("playing");
       if (startLoopRef.current) startLoopRef.current();
     }, TUNING.retriggerGap);
-  }, [natalMode, natalNotes, ensureEngine]);
+  }, [natalMode, natalActivations, ensureEngine]);
 
   return (
     <>
@@ -1645,51 +1537,43 @@ export default function App() {
         </div>
         <div className="cel-keyboard">
           {KEYBOARD_ORDER.filter((_, i) => !SHARP_INDICES.has(i)).map(
-            (planet) => {
-              const cfg = PLANETS[planet];
-              const active = activePlanets.has(planet);
-              const isUncertain =
-                planet === "Ascendant" && natalMode && !natalTime;
+            (sign) => {
+              const cfg = SIGNS[sign];
+              const active = activeSigns.has(sign);
               return (
                 <button
-                  key={planet}
+                  key={sign}
                   type="button"
                   ref={(el) => {
-                    keyRefsRef.current[planet] = el;
+                    keyRefsRef.current[sign] = el;
                   }}
-                  className={`cel-key cel-key-natural${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
-                  onClick={() => togglePlanet(planet)}
+                  className={`cel-key cel-key-natural${active ? " cel-key-active" : ""}`}
+                  onClick={() => toggleSign(sign)}
                 >
-                  <span className={`cel-key-glyph${cfg.glyph === "AC" ? " cel-key-glyph-sm" : ""}`}>{cfg.glyph}</span>
-                  <span className="cel-key-name">{planet}</span>
-                  <span className="cel-key-note">
-                    {natalMode && natalNotes[planet]
-                      ? natalNotes[planet]
-                      : `${cfg.note}${cfg.octave}`}
-                  </span>
+                  <span className="cel-key-glyph">{cfg.glyph}</span>
+                  <span className="cel-key-name">{sign}</span>
+                  <span className="cel-key-note">{`${cfg.note}${cfg.octave}`}</span>
                 </button>
               );
             },
           )}
           {KEYBOARD_ORDER.filter((_, i) => SHARP_INDICES.has(i)).map(
-            (planet, i) => {
-              const cfg = PLANETS[planet];
-              const active = activePlanets.has(planet);
-              const isUncertain =
-                planet === "Ascendant" && natalMode && !natalTime;
+            (sign, i) => {
+              const cfg = SIGNS[sign];
+              const active = activeSigns.has(sign);
               return (
                 <button
-                  key={planet}
+                  key={sign}
                   type="button"
                   ref={(el) => {
-                    keyRefsRef.current[planet] = el;
+                    keyRefsRef.current[sign] = el;
                   }}
-                  className={`cel-key cel-key-sharp${active ? " cel-key-active" : ""}${isUncertain ? " cel-key-uncertain" : ""}`}
+                  className={`cel-key cel-key-sharp${active ? " cel-key-active" : ""}`}
                   style={{ left: SHARP_POSITIONS[i] }}
-                  onClick={() => togglePlanet(planet)}
+                  onClick={() => toggleSign(sign)}
                 >
                   <span className="cel-key-glyph">{cfg.glyph}</span>
-                  <span className="cel-key-name">{planet}</span>
+                  <span className="cel-key-name">{sign}</span>
                 </button>
               );
             },
@@ -1728,60 +1612,69 @@ export default function App() {
           </button>
         </div>
 
-        <div className="cel-macros">
-          {groupedKnobs.map((item) =>
-            item.type === "row" ? (
-              <div key={item.groups.map(g => g.key).join("-")} className="cel-group-row">
-                {item.groups.map(g => (
-                  <div key={g.key} className="cel-group">
-                    <span className="cel-group-label">{g.label}</span>
-                    <div className="cel-group-knobs">
-                      {g.knobs.map(([name, def]) => (
-                        <Knob
-                          key={name}
-                          label={def.label}
-                          value={params[name]}
-                          defaultValue={def.default}
-                          min={def.min}
-                          max={def.max}
-                          {...knobScaleProps[name]}
-                          format={formatFns[name]}
-                          onChange={paramSetters[name]}
-                        />
-                      ))}
+        <details className="cel-veil" open>
+          <summary>Controls</summary>
+          <div className="cel-macros">
+            {groupedKnobs.map((item) =>
+              item.type === "row" ? (
+                <div key={item.groups.map(g => g.key).join("-")} className="cel-group-row">
+                  {item.groups.map(g => (
+                    <div key={g.key} className="cel-group">
+                      <span className="cel-group-label">{g.label}</span>
+                      <div className="cel-group-knobs">
+                        {g.knobs.map(([name, def]) => (
+                          <Knob
+                            key={name}
+                            label={def.label}
+                            value={params[name]}
+                            defaultValue={def.default}
+                            min={def.min}
+                            max={def.max}
+                            {...knobScaleProps[name]}
+                            format={formatFns[name]}
+                            onChange={paramSetters[name]}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div key={item.key} className="cel-group">
-                <span className="cel-group-label">{item.label}</span>
-                <div className="cel-group-knobs">
-                  {item.knobs.map(([name, def]) => (
-                    <Knob
-                      key={name}
-                      label={def.label}
-                      value={params[name]}
-                      defaultValue={def.default}
-                      min={def.min}
-                      max={def.max}
-                      {...knobScaleProps[name]}
-                      format={formatFns[name]}
-                      onChange={paramSetters[name]}
-                    />
                   ))}
                 </div>
-              </div>
-            )
-          )}
-        </div>
-
-        {/* Natal Chart — hidden until Lionel provides mapping data
-        <details className="cel-natal">
-          <summary className="cel-natal-summary">Natal Chart</summary>
-          ...
+              ) : (
+                <div key={item.key} className="cel-group">
+                  <span className="cel-group-label">{item.label}</span>
+                  <div className="cel-group-knobs">
+                    {item.knobs.map(([name, def]) => (
+                      <Knob
+                        key={name}
+                        label={def.label}
+                        value={params[name]}
+                        defaultValue={def.default}
+                        min={def.min}
+                        max={def.max}
+                        {...knobScaleProps[name]}
+                        format={formatFns[name]}
+                        onChange={paramSetters[name]}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
         </details>
-        */}
+
+        <details className="cel-natal" open={natalMode && !!natalActivations}>
+          <summary>Natal Chart</summary>
+          {natalActivations && (
+            <div className="cel-natal-grid">
+              {Object.entries(natalActivations).map(([sign, { planets }]) => (
+                <span key={sign} className="cel-natal-item">
+                  {SIGNS[sign].glyph} {sign}: {planets.join(", ")}
+                </span>
+              ))}
+            </div>
+          )}
+        </details>
 
         <div className="cel-footer">
           <p>v12 &middot; 12&times;2 voices &middot; 16kHz &middot; 35 knobs</p>
@@ -1796,68 +1689,8 @@ export default function App() {
 
 const CSS = `
   @font-face {
-    font-family: 'Rudelsberg';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Rudelsberg Alternate';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/RudelsbergAlternate.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Rudelsberg Titel';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Titel.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Rudelsberg Initialen';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Initialen.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Rudelsberg Schmuck';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Schmuck.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Rudelsberg Plakatschrift';
-    src: url('${process.env.PUBLIC_URL}/fonts/rudelsberg/Rudelsberg-Plakatschrift.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
     font-family: 'Spiral ST';
     src: url('${process.env.PUBLIC_URL}/fonts/spiral-st/SpiralST.ttf') format('truetype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Gerakent';
-    src: url('${process.env.PUBLIC_URL}/fonts/gerakent/GERAKENTtrial.otf') format('opentype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Xagetif';
-    src: url('${process.env.PUBLIC_URL}/fonts/xagetif/Xagetiftrial.otf') format('opentype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Gesego';
-    src: url('${process.env.PUBLIC_URL}/fonts/gesego/Gesegotrial.otf') format('opentype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Salty Mussy';
-    src: url('${process.env.PUBLIC_URL}/fonts/salty-mussy-demo/Salty Mussy DEMO.otf') format('opentype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Ruigslay';
-    src: url('${process.env.PUBLIC_URL}/fonts/ruigslay/Ruigslay.otf') format('opentype');
-    font-display: swap;
-  }
-  @font-face {
-    font-family: 'Soiglat';
-    src: url('${process.env.PUBLIC_URL}/fonts/soiglat/Soiglat-Regular.ttf') format('truetype');
     font-display: swap;
   }
 
@@ -2394,5 +2227,36 @@ const CSS = `
     font-size: 0.7rem;
     color: #3a3050;
     line-height: 1.6;
+  }
+
+  .cel-natal-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0;
+  }
+  .cel-natal-item {
+    font-size: 11px;
+    opacity: 0.7;
+  }
+  .cel-veil > summary {
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: 11px;
+    text-align: center;
+    padding: 4px;
+  }
+  .cel-veil[open] > summary { opacity: 0.3; }
+
+  @media (max-width: 600px) {
+    .cel-root { padding: 8px; }
+    .cel-keyboard { gap: 2px; }
+    .cel-key-natural { min-width: 36px; padding: 8px 2px; }
+    .cel-key-sharp { width: 28px; }
+    .cel-key-name { font-size: 8px; }
+    .cel-key-glyph { font-size: 14px; }
+    .cel-listen { flex-wrap: wrap; }
+    .cel-group-row { flex-direction: column; }
+    .cel-oracle input { width: 100%; }
   }
 `;

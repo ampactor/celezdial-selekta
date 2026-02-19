@@ -61,10 +61,10 @@ export const TUNING = {
   // ── Tape EQ (Tone macro) ──
   // 3-band EQ simulating tape head frequency response.
   // Shapes the saturated signal before time-domain effects.
-  eqHigh: -6, // dB — high shelf (warm silk rolloff)
+  eqHigh: -3, // dB — high shelf (warm silk rolloff)
   eqMid: 2, // dB — gentle mid presence
   eqLow: 4, // dB — full bottom end
-  eqHighFreq: 3000, // Hz — high band crossover frequency
+  eqHighFreq: 4500, // Hz — high band crossover frequency
 
   // ── VHS wow / vibrato (Drift macro) ──
   // Slow LFO pitch modulation on the full mix.
@@ -118,7 +118,7 @@ export const TUNING = {
 
   // ── Echo feedback loop filter ──
   // Lowpass in the feedback path — darkens each repeat.
-  echoFilterFreq: 3000, // Hz — dark repeats, tape delay character
+  echoFilterFreq: 3500, // Hz — dark repeats, tape delay character
 
   // ── Distortion (Grit macro, dormant below 0.5) ──
   // Waveshaping saturator that stacks with Chebyshev.
@@ -137,6 +137,13 @@ export const TUNING = {
   // At defaults: 0.42 * 0.6 = 0.252. Safe.
   echoSatDrive: 0.6, // tanh drive factor — keep <= 1.0
   echoInputGain: 0.7, // pre-delay attenuator — safety margin for hot polyphonic sum
+
+  // ── Highpass filter ──
+  highpassFreq: 30,     // Hz — sub rumble removal
+  highpassRolloff: -12, // dB/octave — gentle slope
+
+  // ── Microtonal system (Lionel's chromatic-calendar) ──
+  centsPerDegree: 100 / 30,  // 3.33 — Lionel's system: 100 cents per 30° sign
 };
 
 // ─── Oscillator Types ────────────────────────────────────────
@@ -456,3 +463,21 @@ export const CHAINS = {
 // Which chain to wire on engine init.
 // Change this string, save, refresh — instant new character.
 export const ACTIVE_CHAIN = "zodiac";
+
+// ─── Zodiac Note Mapping (Lionel's chromatic-calendar) ───────
+// Each sign maps to its chromatic pitch. One sign = 30° = 100 cents.
+// Aries = Spring Equinox = D (middle of chromatic scale).
+export const ZODIAC_NOTES = {
+  aquarius:    "C",
+  pisces:      "Db",
+  aries:       "D",
+  taurus:      "Eb",
+  gemini:      "E",
+  cancer:      "F",
+  leo:         "Gb",
+  virgo:       "G",
+  libra:       "Ab",
+  scorpio:     "A",
+  sagittarius: "Bb",
+  capricorn:   "B",
+};
