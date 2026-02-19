@@ -46,58 +46,60 @@ export const TUNING = {
 
   // ── Envelope (Bloom macro) ──
   // ADSR shape for all PolySynth voices.
-  attack: 1.5, // seconds — gradual voice emergence
-  decay: 3.0, // seconds — long bloom into sustain
-  sustain: 0.35, // 0–1 level — each planet stays audible
-  release: 5.0, // seconds — voices fade into reverb tail
+  // With 0.9s stagger, 8 voices enter over ~7s. Each voice
+  // blooms individually (2.8s attack) before the next begins.
+  attack: 2.8, // seconds — slow bloom, each voice breathes in
+  decay: 4.0, // seconds — long settle into sustain
+  sustain: 0.5, // 0–1 level — voices hover, stay present
+  release: 7.0, // seconds — long tail dissolves into reverb
 
   // ── Chebyshev saturation (Grit macro) ──
   // Polynomial waveshaper on the summed polyphonic signal.
-  // Order N generates Nth harmonic. Intermodulation between
-  // voices creates FM-like sum/difference tones.
-  chebyOrder: 3, // harmonic order (1=clean, 11=harsh)
-  chebyWet: 0.5, // 0–1 dry/wet blend (half = body without harshness)
+  // Order 2 = even harmonics (octave doubling = warmth).
+  // Order 3 creates harsh odd-harmonic intermodulation on
+  // dense polyphonic material — avoided for ambient default.
+  chebyOrder: 2, // harmonic order — even harmonics only
+  chebyWet: 0.25, // 0–1 — gentle warmth, not saturation
 
   // ── Tape EQ (Tone macro) ──
   // 3-band EQ simulating tape head frequency response.
   // Shapes the saturated signal before time-domain effects.
-  eqHigh: -3, // dB — high shelf (warm silk rolloff)
-  eqMid: 2, // dB — gentle mid presence
-  eqLow: 4, // dB — full bottom end
+  eqHigh: -5, // dB — silk rolloff, tame cheby + comb brightness
+  eqMid: 1, // dB — slight presence, voices speak without pushing
+  eqLow: 2, // dB — reduced, dense voicing already fills low end
   eqHighFreq: 4500, // Hz — high band crossover frequency
 
   // ── VHS wow / vibrato (Drift macro) ──
   // Slow LFO pitch modulation on the full mix.
-  // Low rate + moderate depth = seasick drift, not chorus.
-  vibratoFreq: 0.12, // Hz — LFO rate (0.12 = ~8 second cycle)
-  vibratoDepth: 0.22, // 0–1 — gentle pitch deviation
-  vibratoWet: 0.6, // 0–1 — present but blended
+  // Below conscious perception — felt as "alive", not "wobble".
+  vibratoFreq: 0.08, // Hz — ~12.5s cycle, imperceptible
+  vibratoDepth: 0.15, // 0–1 — subtle pitch wandering
+  vibratoWet: 0.3, // 0–1 — ghost-haunts the sound, never dominates
 
   // ── Echo / delay cascade (Echo macro) ──
   // Hand-wired delay with feedback path: delay → filter → tanh sat → gain → delay.
   // Each repeat gets progressively darker and warmer (tape delay character).
-  delayTime: 0.65, // seconds — spacious echo timing
-  delayFeedback: 0.42, // 0–1 — 3-4 clean echoes then silence
-  delayWet: 0.28, // 0–1 — echo adds depth without dominating
+  delayTime: 0.85, // seconds — spacious, echoes don't crowd
+  delayFeedback: 0.35, // 0–1 — 2-3 clean repeats, less buildup
+  delayWet: 0.22, // 0–1 — echo adds depth without competing
 
   // ── Algorithmic reverb (Aether macro) ──
   // Freeverb — parallel comb filters + series allpass.
-  // Comb-filter resonances interact with Chebyshev harmonics
-  // to produce metallic shimmer. NOT convolution.
-  reverbRoom: 0.9, // 0–1 — large hall (enveloping, not formless)
-  reverbDamp: 1800, // Hz — brighter dampening for comb shimmer
-  reverbWet: 0.42, // 0–1 — reverb is the space, voices still lead
+  // Lower dampening = darker tail, warm cloud not metallic hall.
+  reverbRoom: 0.88, // 0–1 — large hall, slightly more defined
+  reverbDamp: 1200, // Hz — darker tail, less comb-filter shimmer
+  reverbWet: 0.45, // 0–1 — reverb IS the space for intimate ambient
 
   // ── Damp sweep (Aether macro) ──
   // Sinusoidal LFO modulating reverb dampening frequency.
   // Sweeps comb filter cutoffs for evolving resonance morphing.
-  dampSweepRate: 0.05, // Hz — ~20s cycle, imperceptible evolution
-  dampSweepDepth: 0.12, // 0–1 — subtle breath (0 = off)
+  dampSweepRate: 0.04, // Hz — ~25s cycle, imperceptible
+  dampSweepDepth: 0.15, // 0–1 — reverb character breathes gently
 
   // ── Per-voice panning LFOs (Aether macro) ──
   // One LFO per pan group (A/B/C/D), drifts stereo position.
-  panLfoFreq: 0.04, // Hz — ~25s cycle, space feels alive
-  panLfoAmplitude: 0.18, // 0–1 — wider stereo field
+  panLfoFreq: 0.03, // Hz — ~33s cycle, glacial drift
+  panLfoAmplitude: 0.28, // 0–1 — wider field, voices inhabit the space
 
   // ── Monitor EQ crossover frequencies ──
   // Fixed crossover points for the output EQ (listen presets).
@@ -105,7 +107,7 @@ export const TUNING = {
   monitorHighFreq: 2500, // Hz — mid/high crossover
 
   // ── Stagger / retrigger ──
-  stagger: 0.45, // seconds — delay between voice triggers in a chord
+  stagger: 0.9, // seconds — narrative emergence, each sign announces itself
   retriggerGap: 80, // ms — minimum gap before a voice can retrigger
 
   // ── Phaser (Grit macro, dormant below 0.5) ──
@@ -118,28 +120,28 @@ export const TUNING = {
 
   // ── Echo feedback loop filter ──
   // Lowpass in the feedback path — darkens each repeat.
-  echoFilterFreq: 3500, // Hz — dark repeats, tape delay character
+  echoFilterFreq: 2800, // Hz — darker repeats, more tape-like
 
   // ── Distortion (Grit macro, dormant below 0.5) ──
   // Waveshaping saturator that stacks with Chebyshev.
   distortion: 0.35, // 0–1 — drive amount
   distortionWet: 0.0, // 0–1 — starts bypassed
 
-  // ── Chorus ──
-  chorusFreq: 0.8,       // Hz — modulation rate
-  chorusDelay: 12,        // ms — chorus voice delay spread
-  chorusDepth: 0.6,       // 0-1 — depth of delay modulation
-  chorusWet: 0.0,         // 0-1 — dry/wet blend (starts off)
+  // ── Chorus (on by default for stereo width) ──
+  chorusFreq: 0.3, // Hz — slow shimmer, not audible as modulation
+  chorusDelay: 18, // ms — wider spread for stereo width
+  chorusDepth: 0.35, // 0–1 — gentle detuning
+  chorusWet: 0.18, // 0–1 — subtle width + micro-detuning
 
   // ── Echo feedback safety ──
   // The echo loop has: delay → filter → tanh(v * drive) → gain(feedback) → delay
   // Loop gain = feedback * drive. MUST be < 1 or small signals amplify forever.
-  // At defaults: 0.42 * 0.6 = 0.252. Safe.
+  // At defaults: 0.35 * 0.6 = 0.21. Safe.
   echoSatDrive: 0.6, // tanh drive factor — keep <= 1.0
   echoInputGain: 0.7, // pre-delay attenuator — safety margin for hot polyphonic sum
 
   // ── Highpass filter ──
-  highpassFreq: 30,     // Hz — sub rumble removal
+  highpassFreq: 35, // Hz — cleans sub rumble from dense voicing
   highpassRolloff: -12, // dB/octave — gentle slope
 
   // ── Microtonal system (Lionel's chromatic-calendar) ──
@@ -151,14 +153,14 @@ export const TUNING = {
 // AM/FM variants create amplitude/frequency modulation between carrier
 // and modulator — different harmonic character.
 export const OSC_TYPES = [
-  "fatsawtooth",   // rich harmonics, spread detuning
-  "amsine",        // bell-like AM, clean
-  "fmtriangle",    // warm FM undertones
-  "fatsine",       // pure + spread detuning
-  "amtriangle",    // warm AM modulation
+  "fatsine",       // pure + detuning — warm, intimate, minimal intermod
+  "amsine",        // bell-like AM — ethereal, clean
+  "fattriangle",   // warm + detuning — slightly richer than sine
+  "amtriangle",    // warm AM character
+  "fmtriangle",    // warm FM undertones — more complex
+  "fatsawtooth",   // rich harmonics — more aggressive
   "fmsine",        // metallic DX7-style FM
-  "fattriangle",   // warm + spread detuning
-  "fatsquare",     // hollow + spread detuning
+  "fatsquare",     // hollow + spread — most aggressive
 ];
 
 // ─── Shadow / Eclipse Mode Chaos Targets ─────────────────────
@@ -166,12 +168,12 @@ export const OSC_TYPES = [
 // rampTime seconds. When Eclipse deactivates, macro-derived values
 // are restored. These are "how far into chaos" each param goes.
 export const SHADOW = {
-  reverbWet: 0.8, // wetter reverb
+  reverbWet: 0.85, // wetter reverb (more contrast from 0.45 base)
   delayFeedback: 0.87, // near-infinite echoes (still < 1.0!)
   delayWet: 0.86, // almost all wet signal
-  vibratoDepth: 0.72, // heavy pitch drift
+  vibratoDepth: 0.72, // heavy pitch drift (dramatic from 0.15 base)
   vibratoFreq: 0.06, // very slow wobble
-  chebyWet: 1.0, // full saturation
+  chebyWet: 0.85, // heavy saturation (not full — less harsh on dense voicing)
   panLfoFreq: 0.18, // faster pan drift
   panLfoAmplitude: 0.55, // wide stereo movement
   oscSpread: 120, // max oscillator detuning
@@ -487,7 +489,7 @@ export const ZODIAC_NOTES = {
 // Flattens perceived loudness across the 4-octave range at moderate
 // listening levels (~70 phon). Octave 4 is the reference (0 dB) —
 // human hearing is most sensitive in the 1–4 kHz range.
-export const OCTAVE_GAIN = { 2: 4, 3: 2, 4: 0, 5: -1 };
+export const OCTAVE_GAIN = { 2: 5, 3: 2, 4: 0, 5: -2 };
 
 // ─── Cousto Planetary Tuning ───────────────────────────────
 // Hans Cousto's "Cosmic Octave" — audible frequencies derived from

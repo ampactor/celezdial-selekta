@@ -81,7 +81,13 @@
 //
 // ═══════════════════════════════════════════════════════════════
 
-import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import React, {
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import * as Tone from "tone";
 import { Origin, Horoscope } from "circular-natal-horoscope-js";
 import {
@@ -120,34 +126,160 @@ const FONTS = {
 // Each carries: note class, microtonal detune from 12-TET (cents),
 // octave, velocity (mix weight), glyph, fixed stereo base,
 // pan group, osc count, osc spread.
+// Octave spread: dim7 partitioning — C/Eb/Gb/A in oct 3, D/F/Ab/B in oct 4,
+// Db/E/G/Bb in oct 5. No semitone adjacencies within any octave.
+// Velocity: luminary-ruled signs (Leo/Cancer) lead, personal planet signs mid,
+// social planet signs (Jupiter/Saturn) form the harmonic bed.
+// Detune: Cousto planetary frequencies at 50% strength — authentic color
+// without quarter-tone shock. Signs sharing a ruler share the same offset.
 const SIGNS = {
-  Aquarius:    { octave: 2, vel: 0.7, glyph: "\u2652\uFE0E", note: "C",  detuneCents: 0, panBase: -0.62, panGroup: "A", oscCount: 2, oscSpread: 55 },
-  Pisces:      { octave: 2, vel: 0.6, glyph: "\u2653\uFE0E", note: "Db", detuneCents: 0, panBase: 0.46,  panGroup: "D", oscCount: 2, oscSpread: 40 },
-  Aries:       { octave: 2, vel: 0.8, glyph: "\u2648\uFE0E", note: "D",  detuneCents: 0, panBase: -0.85, panGroup: "A", oscCount: 2, oscSpread: 55 },
-  Taurus:      { octave: 3, vel: 0.5, glyph: "\u2649\uFE0E", note: "Eb", detuneCents: 0, panBase: 0.72,  panGroup: "D", oscCount: 2, oscSpread: 40 },
-  Gemini:      { octave: 3, vel: 0.6, glyph: "\u264A\uFE0E", note: "E",  detuneCents: 0, panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
-  Cancer:      { octave: 3, vel: 0.4, glyph: "\u264B\uFE0E", note: "F",  detuneCents: 0, panBase: 0.62,  panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Leo:         { octave: 4, vel: 0.7, glyph: "\u264C\uFE0E", note: "Gb", detuneCents: 0, panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
-  Virgo:       { octave: 4, vel: 1.0, glyph: "\u264D\uFE0E", note: "G",  detuneCents: 0, panBase: 0.15,  panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Libra:       { octave: 4, vel: 0.5, glyph: "\u264E\uFE0E", note: "Ab", detuneCents: 0, panBase: 0.38,  panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Scorpio:     { octave: 4, vel: 0.6, glyph: "\u264F\uFE0E", note: "A",  detuneCents: 0, panBase: 0.0,   panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Sagittarius: { octave: 5, vel: 0.5, glyph: "\u2650\uFE0E", note: "Bb", detuneCents: 0, panBase: 0.08,  panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Capricorn:   { octave: 5, vel: 0.4, glyph: "\u2651\uFE0E", note: "B",  detuneCents: 0, panBase: -0.23, panGroup: "A", oscCount: 3, oscSpread: 40 },
+  Aquarius: {
+    octave: 3,
+    vel: 0.33,
+    glyph: "\u2652\uFE0E",
+    note: "C",
+    detuneCents: 6, // Saturn ×0.5
+    panBase: -0.70,
+    panGroup: "A",
+    oscCount: 2,
+    oscSpread: 5,
+  },
+  Pisces: {
+    octave: 5,
+    vel: 0.38,
+    glyph: "\u2653\uFE0E",
+    note: "Db",
+    detuneCents: -6.5, // Jupiter ×0.5
+    panBase: 0.65,
+    panGroup: "D",
+    oscCount: 3,
+    oscSpread: 12,
+  },
+  Aries: {
+    octave: 4,
+    vel: 0.52,
+    glyph: "\u2648\uFE0E",
+    note: "D",
+    detuneCents: -12.5, // Mars ×0.5
+    panBase: -0.40,
+    panGroup: "B",
+    oscCount: 2,
+    oscSpread: 8,
+  },
+  Taurus: {
+    octave: 3,
+    vel: 0.50,
+    glyph: "\u2649\uFE0E",
+    note: "Eb",
+    detuneCents: 5, // Venus ×0.5
+    panBase: 0.55,
+    panGroup: "C",
+    oscCount: 2,
+    oscSpread: 5,
+  },
+  Gemini: {
+    octave: 5,
+    vel: 0.48,
+    glyph: "\u264A\uFE0E",
+    note: "E",
+    detuneCents: 16.5, // Mercury ×0.5
+    panBase: -0.30,
+    panGroup: "B",
+    oscCount: 3,
+    oscSpread: 12,
+  },
+  Cancer: {
+    octave: 4,
+    vel: 0.60,
+    glyph: "\u264B\uFE0E",
+    note: "F",
+    detuneCents: 11.5, // Moon ×0.5
+    panBase: 0.70,
+    panGroup: "D",
+    oscCount: 2,
+    oscSpread: 8,
+  },
+  Leo: {
+    octave: 3,
+    vel: 0.65,
+    glyph: "\u264C\uFE0E",
+    note: "Gb",
+    detuneCents: 19, // Sun ×0.5
+    panBase: 0.10,
+    panGroup: "B",
+    oscCount: 2,
+    oscSpread: 5,
+  },
+  Virgo: {
+    octave: 5,
+    vel: 0.45,
+    glyph: "\u264D\uFE0E",
+    note: "G",
+    detuneCents: 16.5, // Mercury ×0.5
+    panBase: -0.60,
+    panGroup: "A",
+    oscCount: 3,
+    oscSpread: 12,
+  },
+  Libra: {
+    octave: 4,
+    vel: 0.47,
+    glyph: "\u264E\uFE0E",
+    note: "Ab",
+    detuneCents: 5, // Venus ×0.5
+    panBase: 0.35,
+    panGroup: "C",
+    oscCount: 2,
+    oscSpread: 8,
+  },
+  Scorpio: {
+    octave: 3,
+    vel: 0.48,
+    glyph: "\u264F\uFE0E",
+    note: "A",
+    detuneCents: -12.5, // Mars ×0.5
+    panBase: -0.20,
+    panGroup: "C",
+    oscCount: 2,
+    oscSpread: 5,
+  },
+  Sagittarius: {
+    octave: 5,
+    vel: 0.40,
+    glyph: "\u2650\uFE0E",
+    note: "Bb",
+    detuneCents: -6.5, // Jupiter ×0.5
+    panBase: 0.15,
+    panGroup: "D",
+    oscCount: 3,
+    oscSpread: 12,
+  },
+  Capricorn: {
+    octave: 4,
+    vel: 0.35,
+    glyph: "\u2651\uFE0E",
+    note: "B",
+    detuneCents: 6, // Saturn ×0.5
+    panBase: -0.55,
+    panGroup: "A",
+    oscCount: 2,
+    oscSpread: 8,
+  },
 };
 
 const SIGN_COLORS = {
-  Aquarius:    ["#3f575a","#688a8d","#95bbbe","#d0ecf0","#0c0c0c"],
-  Pisces:      ["#657ba5","#7495bf","#4e5d74","#779ebf","#0c0c0c"],
-  Aries:       ["#dabd9d","#8c5c4a","#f27b5f","#c26d5c","#0c0c0c"],
-  Taurus:      ["#878a8d","#d9b292","#f4dbc4","#414141","#0c0c0c"],
-  Gemini:      ["#595856","#c0bdbc","#8d8a88","#f5f6f7","#0c0c0c"],
-  Cancer:      ["#c0c0c8","#8888a0","#e8e8f0","#606078","#0c0c0c"],
-  Leo:         ["#f28320","#f15d22","#d94126","#a41d21","#0c0c0c"],
-  Virgo:       ["#8d8a88","#595856","#c0bdbc","#f5f6f7","#0c0c0c"],
-  Libra:       ["#d9b292","#878a8d","#f4dbc4","#414141","#0c0c0c"],
-  Scorpio:     ["#4a3a5c","#7b6898","#a08cb8","#c8b8d8","#0c0c0c"],
-  Sagittarius: ["#282311","#c08237","#bfaf9b","#c0a480","#0c0c0c"],
-  Capricorn:   ["#8b7355","#c4a96d","#e0c98f","#5a4a32","#0c0c0c"],
+  Aquarius: ["#3f575a", "#688a8d", "#95bbbe", "#d0ecf0", "#0c0c0c"],
+  Pisces: ["#657ba5", "#7495bf", "#4e5d74", "#779ebf", "#0c0c0c"],
+  Aries: ["#dabd9d", "#8c5c4a", "#f27b5f", "#c26d5c", "#0c0c0c"],
+  Taurus: ["#878a8d", "#d9b292", "#f4dbc4", "#414141", "#0c0c0c"],
+  Gemini: ["#595856", "#c0bdbc", "#8d8a88", "#f5f6f7", "#0c0c0c"],
+  Cancer: ["#c0c0c8", "#8888a0", "#e8e8f0", "#606078", "#0c0c0c"],
+  Leo: ["#f28320", "#f15d22", "#d94126", "#a41d21", "#0c0c0c"],
+  Virgo: ["#8d8a88", "#595856", "#c0bdbc", "#f5f6f7", "#0c0c0c"],
+  Libra: ["#d9b292", "#878a8d", "#f4dbc4", "#414141", "#0c0c0c"],
+  Scorpio: ["#4a3a5c", "#7b6898", "#a08cb8", "#c8b8d8", "#0c0c0c"],
+  Sagittarius: ["#282311", "#c08237", "#bfaf9b", "#c0a480", "#0c0c0c"],
+  Capricorn: ["#8b7355", "#c4a96d", "#e0c98f", "#5a4a32", "#0c0c0c"],
 };
 const COLOR_OFF = "#0c0c0c";
 const KNOB_DEFAULT_COLOR = "#9070cc";
@@ -385,8 +517,14 @@ function formatValue(value, def) {
   const u = def.unit || "";
   if (def.scale === "step") return String(Math.round(value));
   if (u === "dB") return `${value > 0 ? "+" : ""}${value.toFixed(0)}`;
-  if (u === "Hz") return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : `${value.toFixed(0)}`;
-  if (u === "s") return value < 1 ? `${(value * 1000).toFixed(0)}ms` : `${value.toFixed(1)}s`;
+  if (u === "Hz")
+    return value >= 1000
+      ? `${(value / 1000).toFixed(1)}k`
+      : `${value.toFixed(0)}`;
+  if (u === "s")
+    return value < 1
+      ? `${(value * 1000).toFixed(0)}ms`
+      : `${value.toFixed(1)}s`;
   if (u === "ms") return `${value.toFixed(0)}ms`;
   if (u === "%") return `${(value * 100).toFixed(0)}%`;
   return value.toFixed(2);
@@ -405,8 +543,12 @@ const stepMap = (min, max) => ({
 // ─── SVG Arc Knob Geometry (hoisted — computed once) ─────────
 
 const DEG_TO_RAD = Math.PI / 180;
-const KNOB_R = 22, KNOB_CX = 28, KNOB_CY = 28;
-const KNOB_START = -135, KNOB_END = 135, KNOB_SWEEP = 270;
+const KNOB_R = 22,
+  KNOB_CX = 28,
+  KNOB_CY = 28;
+const KNOB_START = -135,
+  KNOB_END = 135,
+  KNOB_SWEEP = 270;
 
 const arcPoint = (angle) => ({
   x: KNOB_CX + KNOB_R * Math.cos((angle - 90) * DEG_TO_RAD),
@@ -741,7 +883,9 @@ async function createEngine() {
               b.prev.disconnect(b.node);
               b.node.disconnect(b.next);
               b.prev.connect(b.next);
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+              /* ignore */
+            }
           }, 60);
         } else {
           b.prev.disconnect(b.node);
@@ -755,7 +899,9 @@ async function createEngine() {
         if (b.node.wet) b.node.wet.rampTo(b.node.wet.value || 1, 0.05);
       }
       bypassState[name] = bypassed;
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   // ─── Per-sign synths + panners ──────────────────────────
@@ -793,7 +939,7 @@ async function createEngine() {
   });
 
   const detuneTracker = Object.fromEntries(
-    Object.keys(SIGNS).map((s) => [s, SIGNS[s].detuneCents])
+    Object.keys(SIGNS).map((s) => [s, SIGNS[s].detuneCents]),
   );
 
   // ─── Group LFOs — one per panGroup, drift all panners in that group ──
@@ -894,7 +1040,9 @@ export default function App() {
   const [natalLng, setNatalLng] = useState("");
   const [natalActivations, setNatalActivations] = useState({});
   const initParams = () =>
-    Object.fromEntries(Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]));
+    Object.fromEntries(
+      Object.entries(KNOB_DEFS).map(([k, d]) => [k, d.default]),
+    );
   const [params, setParams] = useState(initParams);
   const renderThrottleRef = useRef(0);
   const trailingRenderRef = useRef(null);
@@ -921,9 +1069,10 @@ export default function App() {
 
   // Stable callbacks — one per param, never re-created
   const paramSetters = useMemo(
-    () => Object.fromEntries(
-      Object.keys(KNOB_DEFS).map((name) => [name, (v) => setParam(name, v)])
-    ),
+    () =>
+      Object.fromEntries(
+        Object.keys(KNOB_DEFS).map((name) => [name, (v) => setParam(name, v)]),
+      ),
     [setParam],
   );
 
@@ -932,10 +1081,15 @@ export default function App() {
     const newParams = {};
     for (const [name, def] of Object.entries(KNOB_DEFS)) {
       const norm = Math.random();
-      const props = def.scale === "log" ? logMap(def.min, def.max)
-        : def.scale === "step" ? stepMap(def.min, def.max)
-        : null;
-      const value = props ? props.mapFromNorm(norm) : def.min + norm * (def.max - def.min);
+      const props =
+        def.scale === "log"
+          ? logMap(def.min, def.max)
+          : def.scale === "step"
+            ? stepMap(def.min, def.max)
+            : null;
+      const value = props
+        ? props.mapFromNorm(norm)
+        : def.min + norm * (def.max - def.min);
       newParams[name] = value;
       if (eng) KNOB_MAP[name]?.apply(eng, value);
     }
@@ -945,9 +1099,13 @@ export default function App() {
 
   // Pre-computed format functions — stable references for React.memo
   const formatFns = useMemo(
-    () => Object.fromEntries(
-      Object.entries(KNOB_DEFS).map(([name, def]) => [name, (v) => formatValue(v, def)])
-    ),
+    () =>
+      Object.fromEntries(
+        Object.entries(KNOB_DEFS).map(([name, def]) => [
+          name,
+          (v) => formatValue(v, def),
+        ]),
+      ),
     [],
   );
 
@@ -965,8 +1123,10 @@ export default function App() {
       if (seen.has(g.key)) continue;
       seen.add(g.key);
       if (g.row != null) {
-        const partners = groups.filter(x => x.row === g.row && !seen.has(x.key));
-        partners.forEach(p => seen.add(p.key));
+        const partners = groups.filter(
+          (x) => x.row === g.row && !seen.has(x.key),
+        );
+        partners.forEach((p) => seen.add(p.key));
         result.push({ type: "row", groups: [g, ...partners] });
       } else {
         result.push({ type: "single", ...g });
@@ -978,9 +1138,12 @@ export default function App() {
   const knobScaleProps = useMemo(() => {
     const props = {};
     for (const [name, def] of Object.entries(KNOB_DEFS)) {
-      props[name] = def.scale === "log" ? logMap(def.min, def.max)
-        : def.scale === "step" ? stepMap(def.min, def.max)
-        : {};
+      props[name] =
+        def.scale === "log"
+          ? logMap(def.min, def.max)
+          : def.scale === "step"
+            ? stepMap(def.min, def.max)
+            : {};
     }
     return props;
   }, []);
@@ -1014,7 +1177,9 @@ export default function App() {
     };
 
     // Resume on tab/app restore
-    const onVisibility = () => { if (!document.hidden) tryResume(); };
+    const onVisibility = () => {
+      if (!document.hidden) tryResume();
+    };
     document.addEventListener("visibilitychange", onVisibility);
 
     // Resume on any touch (catches interrupted state after phone calls)
@@ -1022,7 +1187,9 @@ export default function App() {
     document.addEventListener("touchend", onTouch, { passive: true });
 
     // Handle bfcache restore (user hits back)
-    const onPageShow = (e) => { if (e.persisted) tryResume(); };
+    const onPageShow = (e) => {
+      if (e.persisted) tryResume();
+    };
     window.addEventListener("pageshow", onPageShow);
 
     return () => {
@@ -1086,7 +1253,8 @@ export default function App() {
         blendG = 0,
         blendB = 0,
         totalWeight = 0;
-      const gradients = gradientsRef.current; gradients.length = 0;
+      const gradients = gradientsRef.current;
+      gradients.length = 0;
       let hasActive = false;
 
       for (const sign in visualStateRef.current) {
@@ -1192,8 +1360,9 @@ export default function App() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (gradients.length > 0) {
           for (const gd of gradients) {
-            const radius = (canvas.height * gd.falloff / 100) | 0;
-            const cx = gd.cx | 0, cy = gd.cy | 0;
+            const radius = ((canvas.height * gd.falloff) / 100) | 0;
+            const cx = gd.cx | 0,
+              cy = gd.cy | 0;
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
             grad.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},${gd.alpha})`);
             grad.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
@@ -1291,14 +1460,21 @@ export default function App() {
             Object.entries(eng.synths).forEach(([name, s]) => {
               s.set({ oscillator: { type: t } });
               if (isFat) {
-                s.set({ oscillator: { count: SIGNS[name].oscCount, spread: SIGNS[name].oscSpread } });
+                s.set({
+                  oscillator: {
+                    count: SIGNS[name].oscCount,
+                    spread: SIGNS[name].oscSpread,
+                  },
+                });
                 eng.spreadTracker[name] = SIGNS[name].oscSpread;
               }
             });
             pendingOscTypeRef.current = null;
           }
           if (natalMode && natalActivations[sign]) {
-            eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
+            eng.synths[sign].set({
+              detune: natalActivations[sign].detuneCents,
+            });
           }
           eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
           next.add(sign);
@@ -1419,7 +1595,7 @@ export default function App() {
       // Smooth detune drift — lerp toward random targets
       const detuneId = Tone.Transport.scheduleRepeat(() => {
         Object.entries(eng.synths).forEach(([name, synth]) => {
-          const base = (SIGNS[name]?.detuneCents || 0);
+          const base = SIGNS[name]?.detuneCents || 0;
           const current = eng.detuneTracker[name] ?? base;
           const target = base + (Math.random() * 2 - 1) * st.detuneRange;
           const next = current + (target - current) * 0.3;
@@ -1526,21 +1702,28 @@ export default function App() {
       const body = chart.CelestialBodies[bodyKey];
       if (!body) continue;
       const signName = body.Sign.label;
-      const signKey = Object.keys(SIGNS).find(k => k.toLowerCase() === signName.toLowerCase());
+      const signKey = Object.keys(SIGNS).find(
+        (k) => k.toLowerCase() === signName.toLowerCase(),
+      );
       if (!signKey) continue;
       const degree = body.ChartPosition.Ecliptic.DecimalDegrees % 30;
       const detune = (degree - 15) * TUNING.centsPerDegree;
-      if (!activations[signKey]) activations[signKey] = { planets: [], detuneCents: detune };
+      if (!activations[signKey])
+        activations[signKey] = { planets: [], detuneCents: detune };
       activations[signKey].planets.push(label);
     }
 
     if (natalTime && chart.Ascendant?.Sign) {
       const ascSign = chart.Ascendant.Sign.label;
-      const ascKey = Object.keys(SIGNS).find(k => k.toLowerCase() === ascSign.toLowerCase());
+      const ascKey = Object.keys(SIGNS).find(
+        (k) => k.toLowerCase() === ascSign.toLowerCase(),
+      );
       if (ascKey) {
-        const degree = chart.Ascendant.ChartPosition.Ecliptic.DecimalDegrees % 30;
+        const degree =
+          chart.Ascendant.ChartPosition.Ecliptic.DecimalDegrees % 30;
         const detune = (degree - 15) * TUNING.centsPerDegree;
-        if (!activations[ascKey]) activations[ascKey] = { planets: [], detuneCents: detune };
+        if (!activations[ascKey])
+          activations[ascKey] = { planets: [], detuneCents: detune };
         activations[ascKey].planets.push("Ascendant");
       }
     }
@@ -1563,7 +1746,12 @@ export default function App() {
         Object.entries(eng.synths).forEach(([name, s]) => {
           s.set({ oscillator: { type: t } });
           if (isFat) {
-            s.set({ oscillator: { count: SIGNS[name].oscCount, spread: SIGNS[name].oscSpread } });
+            s.set({
+              oscillator: {
+                count: SIGNS[name].oscCount,
+                spread: SIGNS[name].oscSpread,
+              },
+            });
             eng.spreadTracker[name] = SIGNS[name].oscSpread;
           }
         });
@@ -1579,16 +1767,14 @@ export default function App() {
       const now = Tone.now();
       const next = new Set();
 
-      const activatedSigns = KEYBOARD_ORDER.filter(sign => natalActivations[sign]);
+      const activatedSigns = KEYBOARD_ORDER.filter(
+        (sign) => natalActivations[sign],
+      );
       activatedSigns.forEach((sign, i) => {
         const cfg = SIGNS[sign];
         const note = `${cfg.note}${cfg.octave}`;
         eng.synths[sign].set({ detune: natalActivations[sign].detuneCents });
-        eng.synths[sign].triggerAttack(
-          note,
-          now + i * TUNING.stagger,
-          cfg.vel,
-        );
+        eng.synths[sign].triggerAttack(note, now + i * TUNING.stagger, cfg.vel);
         next.add(sign);
         const pal = SIGN_COLORS[sign];
         const ci = colorIndexRef.current[sign] || 0;
@@ -1645,7 +1831,7 @@ export default function App() {
                 >
                   <span className="cel-key-glyph">{cfg.glyph}</span>
                   <span className="cel-key-name">{sign}</span>
-                  <span className="cel-key-note">{`${cfg.note}${cfg.octave}`}</span>
+                  <span className="cel-key-note">{cfg.note}</span>
                 </button>
               );
             },
@@ -1697,8 +1883,11 @@ export default function App() {
           <div className="cel-macros">
             {groupedKnobs.map((item) =>
               item.type === "row" ? (
-                <div key={item.groups.map(g => g.key).join("-")} className="cel-group-row">
-                  {item.groups.map(g => (
+                <div
+                  key={item.groups.map((g) => g.key).join("-")}
+                  className="cel-group-row"
+                >
+                  {item.groups.map((g) => (
                     <div key={g.key} className="cel-group">
                       <span className="cel-group-label">{g.label}</span>
                       <div className="cel-group-knobs">
@@ -1738,7 +1927,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-              )
+              ),
             )}
           </div>
           <div className="cel-listen">
@@ -1753,7 +1942,11 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button type="button" className="cel-btn cel-randomize-btn" onClick={randomizeParams}>
+          <button
+            type="button"
+            className="cel-btn cel-randomize-btn"
+            onClick={randomizeParams}
+          >
             Randomize
           </button>
         </details>
@@ -1824,7 +2017,9 @@ export default function App() {
         </details>
 
         <div className="cel-footer">
-          <p>v12 &middot; 12&times;2 voices &middot; 44.1kHz &middot; 35 knobs</p>
+          <p>
+            v12 &middot; 12&times;2 voices &middot; 44.1kHz &middot; 35 knobs
+          </p>
           <h1 className="cel-title">celezdial selekta</h1>
         </div>
       </div>
