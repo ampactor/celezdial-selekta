@@ -120,18 +120,18 @@ const FONTS = {
 // octave, velocity (mix weight), glyph, fixed stereo base,
 // pan group, osc count, osc spread.
 const SIGNS = {
-  Aquarius:    { octave: 2, vel: 0.7, glyph: "\u2652", note: "C",  detuneCents: 0, panBase: -0.62, panGroup: "A", oscCount: 2, oscSpread: 55 },
-  Pisces:      { octave: 2, vel: 0.6, glyph: "\u2653", note: "Db", detuneCents: 0, panBase: 0.46,  panGroup: "D", oscCount: 2, oscSpread: 40 },
-  Aries:       { octave: 2, vel: 0.8, glyph: "\u2648", note: "D",  detuneCents: 0, panBase: -0.85, panGroup: "A", oscCount: 2, oscSpread: 55 },
-  Taurus:      { octave: 3, vel: 0.5, glyph: "\u2649", note: "Eb", detuneCents: 0, panBase: 0.72,  panGroup: "D", oscCount: 2, oscSpread: 40 },
-  Gemini:      { octave: 3, vel: 0.6, glyph: "\u264A", note: "E",  detuneCents: 0, panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
-  Cancer:      { octave: 3, vel: 0.4, glyph: "\u264B", note: "F",  detuneCents: 0, panBase: 0.62,  panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Leo:         { octave: 4, vel: 0.7, glyph: "\u264C", note: "Gb", detuneCents: 0, panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
-  Virgo:       { octave: 4, vel: 1.0, glyph: "\u264D", note: "G",  detuneCents: 0, panBase: 0.15,  panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Libra:       { octave: 4, vel: 0.5, glyph: "\u264E", note: "Ab", detuneCents: 0, panBase: 0.38,  panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Scorpio:     { octave: 4, vel: 0.6, glyph: "\u264F", note: "A",  detuneCents: 0, panBase: 0.0,   panGroup: "C", oscCount: 3, oscSpread: 45 },
-  Sagittarius: { octave: 5, vel: 0.5, glyph: "\u2650", note: "Bb", detuneCents: 0, panBase: 0.08,  panGroup: "D", oscCount: 3, oscSpread: 40 },
-  Capricorn:   { octave: 5, vel: 0.4, glyph: "\u2651", note: "B",  detuneCents: 0, panBase: -0.23, panGroup: "A", oscCount: 3, oscSpread: 40 },
+  Aquarius:    { octave: 2, vel: 0.7, glyph: "\u2652\uFE0E", note: "C",  detuneCents: 0, panBase: -0.62, panGroup: "A", oscCount: 2, oscSpread: 55 },
+  Pisces:      { octave: 2, vel: 0.6, glyph: "\u2653\uFE0E", note: "Db", detuneCents: 0, panBase: 0.46,  panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Aries:       { octave: 2, vel: 0.8, glyph: "\u2648\uFE0E", note: "D",  detuneCents: 0, panBase: -0.85, panGroup: "A", oscCount: 2, oscSpread: 55 },
+  Taurus:      { octave: 3, vel: 0.5, glyph: "\u2649\uFE0E", note: "Eb", detuneCents: 0, panBase: 0.72,  panGroup: "D", oscCount: 2, oscSpread: 40 },
+  Gemini:      { octave: 3, vel: 0.6, glyph: "\u264A\uFE0E", note: "E",  detuneCents: 0, panBase: -0.15, panGroup: "B", oscCount: 3, oscSpread: 45 },
+  Cancer:      { octave: 3, vel: 0.4, glyph: "\u264B\uFE0E", note: "F",  detuneCents: 0, panBase: 0.62,  panGroup: "D", oscCount: 3, oscSpread: 40 },
+  Leo:         { octave: 4, vel: 0.7, glyph: "\u264C\uFE0E", note: "Gb", detuneCents: 0, panBase: -0.38, panGroup: "B", oscCount: 3, oscSpread: 50 },
+  Virgo:       { octave: 4, vel: 1.0, glyph: "\u264D\uFE0E", note: "G",  detuneCents: 0, panBase: 0.15,  panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Libra:       { octave: 4, vel: 0.5, glyph: "\u264E\uFE0E", note: "Ab", detuneCents: 0, panBase: 0.38,  panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Scorpio:     { octave: 4, vel: 0.6, glyph: "\u264F\uFE0E", note: "A",  detuneCents: 0, panBase: 0.0,   panGroup: "C", oscCount: 3, oscSpread: 45 },
+  Sagittarius: { octave: 5, vel: 0.5, glyph: "\u2650\uFE0E", note: "Bb", detuneCents: 0, panBase: 0.08,  panGroup: "D", oscCount: 3, oscSpread: 40 },
+  Capricorn:   { octave: 5, vel: 0.4, glyph: "\u2651\uFE0E", note: "B",  detuneCents: 0, panBase: -0.23, panGroup: "A", oscCount: 3, oscSpread: 40 },
 };
 
 const SIGN_COLORS = {
@@ -158,6 +158,8 @@ function hexToRgb(hex) {
 function rgbToHex(r, g, b) {
   return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 }
+
+const VIS_SPEED = 0.65; // visual envelope runs ~35% faster than audio
 
 const KEYBOARD_ORDER = Object.keys(SIGNS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
@@ -887,6 +889,21 @@ export default function App() {
     [setParam],
   );
 
+  const randomizeParams = useCallback(() => {
+    const eng = engineRef.current;
+    const newParams = {};
+    for (const [name, def] of Object.entries(KNOB_DEFS)) {
+      const norm = Math.random();
+      const props = def.scale === "log" ? logMap(def.min, def.max)
+        : def.scale === "step" ? stepMap(def.min, def.max)
+        : null;
+      const value = props ? props.mapFromNorm(norm) : def.min + norm * (def.max - def.min);
+      newParams[name] = value;
+      if (eng) KNOB_MAP[name]?.apply(eng, value);
+    }
+    setParams(newParams);
+  }, []);
+
   // Pre-computed format functions — stable references for React.memo
   const formatFns = useMemo(
     () => Object.fromEntries(
@@ -1219,10 +1236,10 @@ export default function App() {
             stage: "attack",
             startTime: performance.now(),
             envelopeLevel: 0,
-            attackTime: attack,
-            decayTime: decay,
+            attackTime: attack * VIS_SPEED,
+            decayTime: decay * VIS_SPEED,
             sustainLevel: sustain,
-            releaseTime: release,
+            releaseTime: release * VIS_SPEED,
             releaseStartLevel: 0,
             activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
           };
@@ -1247,7 +1264,7 @@ export default function App() {
           vs.releaseStartLevel = vs.envelopeLevel;
           vs.stage = "release";
           vs.startTime = performance.now();
-          vs.releaseTime = release;
+          vs.releaseTime = release * VIS_SPEED;
         }
       }
       setActiveSigns(new Set());
@@ -1505,10 +1522,10 @@ export default function App() {
           stage: "attack",
           startTime: perfNow + i * TUNING.stagger * 1000,
           envelopeLevel: 0,
-          attackTime: attack,
-          decayTime: decay,
+          attackTime: attack * VIS_SPEED,
+          decayTime: decay * VIS_SPEED,
           sustainLevel: sustain,
-          releaseTime: release,
+          releaseTime: release * VIS_SPEED,
           releaseStartLevel: 0,
           activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
         };
@@ -1580,19 +1597,6 @@ export default function App() {
           )}
         </div>
 
-        <div className="cel-listen">
-          {Object.entries(LISTEN_PRESETS).map(([key, preset]) => (
-            <button
-              key={key}
-              type="button"
-              className={`cel-listen-pill${listenPreset === key ? " cel-listen-active" : ""}`}
-              onClick={() => applyListenPreset(key)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-
         <div className="cel-controls">
           <button
             type="button"
@@ -1607,13 +1611,13 @@ export default function App() {
             className="cel-btn cel-breathe-btn"
             onClick={breathe}
           >
-            <span className="cel-btn-glyph">{"\u223F"}</span>
             <span className="cel-btn-label">Breathe</span>
           </button>
         </div>
 
         <details className="cel-veil" open>
           <summary>Controls</summary>
+          <span className="cel-osc-indicator">{OSC_TYPES[oscIndex]}</span>
           <div className="cel-macros">
             {groupedKnobs.map((item) =>
               item.type === "row" ? (
@@ -1661,19 +1665,86 @@ export default function App() {
               )
             )}
           </div>
+          <div className="cel-listen">
+            {Object.entries(LISTEN_PRESETS).map(([key, preset]) => (
+              <button
+                key={key}
+                type="button"
+                className={`cel-listen-pill${listenPreset === key ? " cel-listen-active" : ""}`}
+                onClick={() => applyListenPreset(key)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="cel-btn cel-randomize-btn" onClick={randomizeParams}>
+            Randomize
+          </button>
         </details>
 
-        <details className="cel-natal" open={natalMode && !!natalActivations}>
-          <summary>Natal Chart</summary>
-          {natalActivations && (
-            <div className="cel-natal-grid">
-              {Object.entries(natalActivations).map(([sign, { planets }]) => (
-                <span key={sign} className="cel-natal-item">
-                  {SIGNS[sign].glyph} {sign}: {planets.join(", ")}
-                </span>
-              ))}
+        <details className="cel-natal">
+          <summary className="cel-natal-summary">Natal Chart</summary>
+          <div className="cel-natal-body">
+            <div className="cel-natal-inputs">
+              <input
+                type="date"
+                className="cel-natal-input"
+                value={natalDate}
+                onChange={(e) => setNatalDate(e.target.value)}
+                placeholder="Birth date"
+              />
+              <input
+                type="time"
+                className="cel-natal-input"
+                value={natalTime}
+                onChange={(e) => setNatalTime(e.target.value)}
+                placeholder="Birth time"
+              />
+              <input
+                type="number"
+                className="cel-natal-input"
+                value={natalLat}
+                onChange={(e) => setNatalLat(e.target.value)}
+                placeholder="Latitude"
+                step="0.01"
+              />
+              <input
+                type="number"
+                className="cel-natal-input"
+                value={natalLng}
+                onChange={(e) => setNatalLng(e.target.value)}
+                placeholder="Longitude"
+                step="0.01"
+              />
             </div>
-          )}
+            <div className="cel-natal-actions">
+              <button
+                type="button"
+                className="cel-btn cel-natal-compute"
+                onClick={computeNatalChart}
+                disabled={!natalDate}
+              >
+                Compute
+              </button>
+              <button
+                type="button"
+                className="cel-btn cel-natal-play"
+                onClick={playNatalChart}
+                disabled={!natalMode}
+              >
+                Play
+              </button>
+            </div>
+            {natalActivations && Object.keys(natalActivations).length > 0 && (
+              <div className="cel-natal-grid">
+                {Object.entries(natalActivations).map(([sign, { planets }]) => (
+                  <span key={sign} className="cel-natal-item">
+                    {SIGNS[sign].glyph} {sign}: {planets.join(", ")}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </details>
 
         <div className="cel-footer">
@@ -1737,7 +1808,7 @@ const CSS = `
     letter-spacing: 0.15em;
     color: #f0e8ff;
     text-shadow: 0 0 30px rgba(180, 140, 255, 0.3);
-    animation: cel-glow 6s ease-in-out infinite;
+    animation: cel-glow 4s ease-in-out infinite;
     margin-bottom: 0.4rem;
     text-align: center;
   }
@@ -1783,7 +1854,7 @@ const CSS = `
     justify-content: flex-end;
     gap: 0.15rem;
     color: #d8d0e8;
-    transition: background 0.25s ease, border-color 0.25s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     padding-bottom: 0.6rem;
@@ -1929,7 +2000,7 @@ const CSS = `
     flex-direction: column;
     align-items: center;
     gap: 0.15rem;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
@@ -1985,7 +2056,7 @@ const CSS = `
     background: rgba(255, 80, 30, 0.16);
     border-color: rgba(255, 120, 60, 0.6);
     box-shadow: 0 0 16px rgba(255, 80, 30, 0.3), inset 0 0 12px rgba(255, 120, 60, 0.08);
-    animation: cel-shadow-pulse 3s ease-in-out infinite;
+    animation: cel-shadow-pulse 2s ease-in-out infinite;
   }
 
   .cel-shadow-active:hover:not(:disabled) {
@@ -2017,6 +2088,13 @@ const CSS = `
     background: rgba(255, 180, 140, 0.1);
     border-color: rgba(255, 180, 140, 0.35);
     box-shadow: none;
+  }
+
+  .cel-osc-indicator {
+    font-size: 0.6rem;
+    font-family: ${FONTS.mono};
+    color: #504868;
+    letter-spacing: 0.04em;
   }
 
   /* ── Listen preset pills ─────────────────────────────── */
@@ -2051,6 +2129,13 @@ const CSS = `
     background: rgba(180, 140, 255, 0.14);
     border-color: rgba(180, 140, 255, 0.5);
     color: #e0c8ff;
+  }
+
+  .cel-randomize-btn {
+    margin: 0.8rem auto 0;
+    font-size: 0.75rem;
+    padding: 0.4rem 1.2rem;
+    opacity: 0.6;
   }
 
   /* ── Macro Knobs ───────────────────────────────────── */
@@ -2126,12 +2211,12 @@ const CSS = `
     stroke: var(--knob-accent, #9070cc);
     stroke-width: 3;
     stroke-linecap: round;
-    transition: stroke 0.4s ease-out;
+    transition: stroke 0.25s ease-out;
   }
 
   .cel-knob-pointer {
     fill: var(--knob-accent, #b490e8);
-    transition: fill 0.4s ease-out;
+    transition: fill 0.25s ease-out;
   }
 
   .cel-knob-value {
@@ -2242,11 +2327,13 @@ const CSS = `
   .cel-veil > summary {
     cursor: pointer;
     opacity: 0.5;
-    font-size: 11px;
+    font-size: 14px;
     text-align: center;
-    padding: 4px;
+    padding: 8px;
+    margin-bottom: 12px;
+    letter-spacing: 0.08em;
   }
-  .cel-veil[open] > summary { opacity: 0.3; }
+  .cel-veil[open] > summary { opacity: 0.3; margin-bottom: 8px; }
 
   @media (max-width: 600px) {
     .cel-root { padding: 8px; }
