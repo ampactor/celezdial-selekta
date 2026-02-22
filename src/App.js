@@ -346,6 +346,39 @@ const DETECTED_LISTEN_PRESET = (() => {
 // ─── Knob Mapping ────────────────────────────────────────────
 
 const KNOB_MAP = {
+  // Oscillator internals
+  harmonicity: {
+    apply: (eng, v) => {
+      for (const name of SIGN_NAMES) {
+        const t = eng.oscTypeTracker[name];
+        if (t.startsWith("am") || t.startsWith("fm")) {
+          eng.synths[name].set({ oscillator: { harmonicity: v } });
+        }
+      }
+    },
+  },
+  modulationIndex: {
+    apply: (eng, v) => {
+      for (const name of SIGN_NAMES) {
+        if (eng.oscTypeTracker[name].startsWith("fm")) {
+          eng.synths[name].set({ oscillator: { modulationIndex: v } });
+        }
+      }
+    },
+  },
+  oscSpread: {
+    apply: (eng, v) => {
+      for (const name of SIGN_NAMES) {
+        if (eng.oscTypeTracker[name].startsWith("fat")) {
+          eng.synths[name].set({ oscillator: { spread: v } });
+          eng.spreadTracker[name] = v;
+        }
+      }
+    },
+  },
+  stagger: {
+    apply: () => {}, // read from paramsRef at playback time
+  },
   // Voice
   attack: {
     apply: (eng, v) => {
@@ -713,6 +746,7 @@ const Knob = React.memo(function Knob({
 let _enginePromise = null; // creation lock — prevents duplicate contexts
 
 async function createEngine() {
+  const yield_ = () => new Promise(r => setTimeout(r, 0));
   // iOS: route through media channel — bypasses mute switch (iOS 17+)
   if ("audioSession" in navigator) {
     navigator.audioSession.type = "playback";
@@ -721,8 +755,8 @@ async function createEngine() {
   const ctx = new Tone.Context({
     latencyHint: "playback",
     sampleRate: TUNING.sampleRate,
-    lookAhead: 0.2,
-    updateInterval: 0.1,
+    lookAhead: 0.3,
+    updateInterval: 0.025,
   });
   Tone.setContext(ctx);
   await Tone.start();
@@ -730,6 +764,23 @@ async function createEngine() {
   if (ctx.rawContext.state !== "running") {
     await ctx.rawContext.resume();
   }
+
+  // ─── Diagnostic: AudioContext state tracking ───
+  _diag.ctx = ctx;
+  _diag.audioInfo = {
+    baseLatency: ctx.rawContext.baseLatency ?? null,
+    outputLatency: ctx.rawContext.outputLatency ?? null,
+    bufferSize: ctx.rawContext.baseLatency != null
+      ? Math.round(ctx.rawContext.baseLatency * ctx.rawContext.sampleRate)
+      : null,
+    sampleRate: ctx.rawContext.sampleRate,
+  };
+  _diag.ctxStateLog.push({ state: ctx.rawContext.state, time: performance.now() });
+  ctx.rawContext.addEventListener('statechange', () => {
+    _diag.ctxStateLog.push({ state: ctx.rawContext.state, time: performance.now() });
+    if (ctx.rawContext.state !== 'running')
+      console.warn(`[selekta] AudioContext → ${ctx.rawContext.state}`);
+  });
 
   // iOS: silent keepalive prevents context suspension on lock/background.
   // Pre-iOS 17 fallback for mute switch bypass (inaudible at 1e-37 gain).
@@ -739,6 +790,7 @@ async function createEngine() {
   keepAlive.connect(muteGain);
   muteGain.connect(ctx.rawContext.destination);
   keepAlive.start();
+  await yield_();
 
   // ─── FX chain (constructed before synths so panners have a target) ───
 
@@ -913,6 +965,7 @@ async function createEngine() {
     echoDelay,
     echoInputGain,
   };
+  await yield_();
   const { bypassState, bypassable } = wireChain(
     highpass,
     chainNodes,
@@ -986,6 +1039,11 @@ async function createEngine() {
     panners[name] = panner;
     spreadTracker[name] = cfg.oscSpread;
   });
+  await yield_();
+
+  const oscTypeTracker = Object.fromEntries(
+    Object.entries(SIGN_CHARACTER).map(([name, cfg]) => [name, cfg.oscType]),
+  );
 
   const detuneTracker = Object.fromEntries(
     Object.keys(SIGN_CHARACTER).map((s) => [s, SIGN_CHARACTER[s].detuneCents]),
@@ -1010,6 +1068,7 @@ async function createEngine() {
     panLfos,
     spreadTracker,
     detuneTracker,
+    oscTypeTracker,
     setBypass,
     fx: {
       reverb,
@@ -1059,6 +1118,132 @@ async function createEngine() {
 
 // ─── Component ───────────────────────────────────────────────
 
+// Reusable gradient data pool — avoids per-frame heap allocation in rAF loop
+const _GRAD_POOL = Array.from({ length: 12 }, () => ({
+  sign: '', cx: 0, cy: 0, r: 0, g: 0, b: 0, alpha: 0, falloff: 0,
+}));
+let _gradCount = 0;
+let _prevLevelSum = -1;
+let _prevGradCount = -1;
+
+// ─── Diagnostics ──────────────────────────────────────────────
+const _DEBUG = typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('debug');
+
+const _diag = {
+  frameGaps: new Float32Array(512),  // circular: last ~17s of frame gaps @30fps
+  frameGapIdx: 0,
+  frameGapCount: 0,
+  frameDrops: 0,
+  _prevTickTime: 0,
+
+  longTasks: [],      // capped at 64 — entries from PerformanceObserver longtask
+  _ltMax: 64,
+
+  gradCacheHits: 0,
+  gradCacheMisses: 0,
+
+  driftSamples: new Float32Array(128),  // circular: clock drift probe (ms)
+  driftIdx: 0,
+  driftCount: 0,
+  _driftFrameCounter: 0,
+  lastDriftMs: 0,
+
+  ctxStateLog: [],   // [{state, time}] — AudioContext state transitions
+  engine: null,
+  ctx: null,
+  driftUnderruns: 0,      // samples where drift < -2ms
+  noteEvents: [],         // capped at 100 — [{type, sign, time}]
+  audioInfo: null,        // set after engine init: {baseLatency, outputLatency, bufferSize, sampleRate}
+};
+
+if (typeof PerformanceObserver !== 'undefined') {
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (_diag.longTasks.length >= _diag._ltMax) _diag.longTasks.shift();
+        _diag.longTasks.push({ start: e.startTime, duration: e.duration });
+      }
+    }).observe({ entryTypes: ['longtask'] });
+  } catch (_) {}
+}
+
+// ─── Platform detection ───────────────────────────────────────
+const _platform = (() => {
+  if (typeof window === 'undefined') return {};
+  const ua = navigator.userAgent;
+  return {
+    isIOS: /iPad|iPhone|iPod/.test(ua) && !window.MSStream,
+    isAndroid: /Android/.test(ua),
+    isSafari: /^((?!chrome|android).)*safari/i.test(ua),
+    isChrome: /Chrome/.test(ua),
+    ua: ua.slice(0, 150),
+  };
+})();
+
+if (typeof window !== 'undefined') {
+  window.__selekta = {
+    get diag() { return _diag; },
+    get frameDrops() { return _diag.frameDrops; },
+    get longTasks() { return _diag.longTasks; },
+    get gradCacheRatio() {
+      const t = _diag.gradCacheHits + _diag.gradCacheMisses;
+      return t ? (_diag.gradCacheHits / t * 100).toFixed(1) + '%' : 'n/a';
+    },
+    get lastDriftMs() { return _diag.lastDriftMs; },
+    get ctxStateLog() { return _diag.ctxStateLog; },
+    get engine() { return _diag.engine; },
+    get ctx() { return _diag.ctx; },
+    get debug() { return _DEBUG; },
+    get platform() { return _platform; },
+    get audioInfo() { return _diag.audioInfo; },
+    get driftUnderruns() { return _diag.driftUnderruns; },
+    get noteEvents() { return _diag.noteEvents; },
+
+    summary() {
+      const t = _diag.gradCacheHits + _diag.gradCacheMisses;
+      const cacheRate = t ? (_diag.gradCacheHits / t * 100).toFixed(1) : 'n/a';
+      const recentLt = _diag.longTasks.slice(-5)
+        .map(e => `  ${e.duration.toFixed(0)}ms @+${(e.start/1000).toFixed(1)}s`)
+        .join('\n') || '  (none)';
+      return [
+        '=== Selekta Diagnostics ===',
+        `Platform: ${_platform.isIOS ? 'iOS' : _platform.isAndroid ? 'Android' : 'desktop'} | ${_platform.isSafari ? 'Safari' : _platform.isChrome ? 'Chrome' : 'other'}`,
+        `AudioContext: ${_diag.ctx?.rawContext?.state ?? 'no engine'}`,
+        `Audio buffer: ${_diag.audioInfo ? `${_diag.audioInfo.bufferSize ?? '?'} samples (${_diag.audioInfo.baseLatency != null ? (_diag.audioInfo.baseLatency * 1000).toFixed(1) + 'ms base latency)' : 'latency unknown)'}` : 'n/a'}`,
+        `Frames logged: ${_diag.frameGapCount}  |  drops (>50ms): ${_diag.frameDrops}`,
+        `Clock drift: ${_diag.driftCount > 0 ? _diag.lastDriftMs.toFixed(2) : 'n/a'} ms  |  underruns (<-2ms): ${_diag.driftUnderruns} / ${_diag.driftCount}`,
+        `Gradient cache: ${cacheRate}% hit  (${_diag.gradCacheHits}H / ${_diag.gradCacheMisses}M)`,
+        `Long tasks (last 5):\n${recentLt}`,
+        `Note events logged: ${_diag.noteEvents.length}`,
+        `State transitions: ${_diag.ctxStateLog.length}`,
+        `Debug mode: ${_DEBUG ? 'ON (perf marks active)' : 'OFF (?debug to enable)'}`,
+      ].join('\n');
+    },
+
+    reset() {
+      _diag.frameGaps.fill(0); _diag.frameGapIdx = 0;
+      _diag.frameGapCount = 0; _diag.frameDrops = 0; _diag._prevTickTime = 0;
+      _diag.longTasks.length = 0;
+      _diag.gradCacheHits = 0; _diag.gradCacheMisses = 0;
+      _diag.driftSamples.fill(0); _diag.driftIdx = 0;
+      _diag.driftCount = 0; _diag._driftFrameCounter = 0; _diag.lastDriftMs = 0;
+      _diag.driftUnderruns = 0;
+      _diag.noteEvents.length = 0;
+      _diag.audioInfo = null;
+      _diag.ctxStateLog.length = 0;
+      console.log('[selekta] diagnostics reset');
+    },
+
+    frameStats() {
+      const gaps = [..._diag.frameGaps].filter(g => g > 0).sort((a, b) => a - b);
+      if (!gaps.length) return 'no data';
+      const pct = (p) => gaps[Math.floor(gaps.length * p)] ?? 0;
+      return { count: gaps.length, p50: pct(0.5).toFixed(1), p95: pct(0.95).toFixed(1), p99: pct(0.99).toFixed(1), max: gaps[gaps.length-1].toFixed(1) };
+    },
+  };
+}
+
 export default function App() {
   const engineRef = useRef(null);
   const [status, setStatus] = useState("idle");
@@ -1096,7 +1281,7 @@ export default function App() {
   const [params, setParams] = useState(initParams);
   const renderThrottleRef = useRef(0);
   const trailingRenderRef = useRef(null);
-  const gradientsRef = useRef([]);
+  const gradientCacheRef = useRef({});
   const paramsRef = useRef(initParams());
   const natalChartDataRef = useRef(null);
   const natalTimeoutIdsRef = useRef([]);
@@ -1304,6 +1489,7 @@ export default function App() {
         canvas.width = rr.width;
         canvas.height = rr.height;
         canvasCtxRef.current = canvas.getContext("2d");
+        gradientCacheRef.current = {};
       }
     };
     updatePositions();
@@ -1330,12 +1516,42 @@ export default function App() {
       }
       lastFrameTimeRef.current = now;
 
+      // ── Diagnostic: frame timing ──
+      if (_diag.frameGapCount > 0) {
+        const _gap = now - _diag._prevTickTime;
+        _diag.frameGaps[_diag.frameGapIdx++ % 512] = _gap;
+        if (_gap > 50) _diag.frameDrops++;
+      }
+      _diag._prevTickTime = now;
+      _diag.frameGapCount++;
+
+      // ── Diagnostic: clock drift probe (every 32 frames) ──
+      if (_diag.ctx && ++_diag._driftFrameCounter >= 8) {
+        _diag._driftFrameCounter = 0;
+        const _raw = _diag.ctx.rawContext;
+        if (_raw.state === 'running' && _raw.getOutputTimestamp) {
+          const _ts = _raw.getOutputTimestamp();
+          if (_ts.contextTime > 0) {
+            const _drift = (_raw.currentTime -
+              (_ts.contextTime + (performance.now() - _ts.performanceTime) / 1000)) * 1000;
+            _diag.driftSamples[_diag.driftIdx++ % 128] = _drift;
+            _diag.driftCount++;
+            _diag.lastDriftMs = _drift;
+            if (_drift < -2) {
+              _diag.driftUnderruns++;
+              console.warn(`[selekta] clock drift ${_drift.toFixed(1)}ms — scheduling starvation`);
+            }
+          }
+        }
+      }
+
+      if (_DEBUG) performance.mark('selekta:tick-start');
+
       let blendR = 0,
         blendG = 0,
         blendB = 0,
         totalWeight = 0;
-      const gradients = gradientsRef.current;
-      gradients.length = 0;
+      _gradCount = 0;
       let hasActive = false;
 
       for (const sign in visualStateRef.current) {
@@ -1407,15 +1623,15 @@ export default function App() {
         // Emanation — push data for canvas draw (no strings, no getBoundingClientRect)
         const pos = keyPositionsRef.current[sign];
         if (pos && level > 0.01) {
-          gradients.push({
-            cx: pos.cx,
-            cy: pos.cy,
-            r,
-            g,
-            b,
-            alpha: level * 0.38,
-            falloff: shadowRef.current ? 95 : 78,
-          });
+          const _gd = _GRAD_POOL[_gradCount++];
+          _gd.sign = sign;
+          _gd.cx = pos.cx;
+          _gd.cy = pos.cy;
+          _gd.r = r;
+          _gd.g = g;
+          _gd.b = b;
+          _gd.alpha = level * 0.38;
+          _gd.falloff = shadowRef.current ? 95 : 78;
         }
 
         if (level > 0.01) {
@@ -1435,21 +1651,43 @@ export default function App() {
       }
 
       // Canvas emanation — single GPU-composited draw
+      // Skip redraw if level sum and active sign count are unchanged (e.g. during sustain).
+      const _canvasDirty = Math.abs(totalWeight - _prevLevelSum) > 0.003 || _gradCount !== _prevGradCount;
+      _prevLevelSum = totalWeight;
+      _prevGradCount = _gradCount;
+
       const canvas = emanationRef.current;
       const ctx = canvasCtxRef.current;
-      if (canvas && ctx) {
+      if (canvas && ctx && _canvasDirty) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (gradients.length > 0) {
-          for (const gd of gradients) {
-            const radius = ((canvas.height * gd.falloff) / 100) | 0;
-            const cx = gd.cx | 0,
-              cy = gd.cy | 0;
-            const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-            grad.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},${gd.alpha})`);
-            grad.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
-            ctx.fillStyle = grad;
+        if (_gradCount > 0) {
+          const canvasH = canvas.height;
+          const _cache = gradientCacheRef.current;
+          for (let i = 0; i < _gradCount; i++) {
+            const gd = _GRAD_POOL[i];
+            const radius = ((canvasH * gd.falloff) / 100) | 0;
+            const cx = gd.cx | 0, cy = gd.cy | 0;
+            let entry = _cache[gd.sign];
+            if (
+              !entry ||
+              entry.r !== gd.r || entry.g !== gd.g || entry.b !== gd.b ||
+              entry.cx !== cx || entry.cy !== cy ||
+              entry.radius !== radius
+            ) {
+              const ng = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+              ng.addColorStop(0, `rgba(${gd.r},${gd.g},${gd.b},1)`);
+              ng.addColorStop(1, `rgba(${gd.r},${gd.g},${gd.b},0)`);
+              entry = { grad: ng, r: gd.r, g: gd.g, b: gd.b, cx, cy, radius };
+              _cache[gd.sign] = entry;
+              _diag.gradCacheMisses++;
+            } else {
+              _diag.gradCacheHits++;
+            }
+            ctx.globalAlpha = gd.alpha;
+            ctx.fillStyle = entry.grad;
             ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
           }
+          ctx.globalAlpha = 1;
         }
       }
 
@@ -1471,6 +1709,8 @@ export default function App() {
           lastAccentRef.current = accent;
         }
       }
+
+      if (_DEBUG) performance.measure('selekta:tick', 'selekta:tick-start');
 
       // Idle detection — stop rAF when nothing is active
       if (hasActive) {
@@ -1509,6 +1749,7 @@ export default function App() {
           eng.fx.monitorEQ.high.value = lp.high;
         }
         engineRef.current = eng;
+        _diag.engine = eng;
         setStatus("ready");
         return eng;
       });
@@ -1516,45 +1757,77 @@ export default function App() {
     return _enginePromise;
   }, []);
 
+  // Pre-warm: start engine build on first user gesture anywhere on page.
+  // Resolves the 1186ms init block so it's done before sign press.
+  useEffect(() => {
+    let warmed = false;
+    const warm = () => {
+      if (warmed) return;
+      warmed = true;
+      document.removeEventListener('pointerdown', warm, { capture: true });
+      ensureEngine().catch(() => {});
+    };
+    document.addEventListener('pointerdown', warm, { capture: true, passive: true });
+    return () => document.removeEventListener('pointerdown', warm, { capture: true });
+  }, [ensureEngine]);
+
   // Apply pending osc type from breathe — used in toggleSign + playNatalChart
   function applyPendingOscType(eng) {
     const t = pendingOscTypeRef.current;
     if (!t) return;
+    const p = paramsRef.current;
     if (t === "per-sign") {
       for (const name of SIGN_NAMES) {
         const sc = SIGN_CHARACTER[name];
         eng.synths[name].set({ oscillator: { type: sc.oscType } });
+        eng.oscTypeTracker[name] = sc.oscType;
         if (sc.oscType.startsWith("fat")) {
-          eng.synths[name].set({ oscillator: { count: sc.oscCount, spread: sc.oscSpread } });
-          eng.spreadTracker[name] = sc.oscSpread;
+          eng.synths[name].set({ oscillator: { count: sc.oscCount, spread: p.oscSpread } });
+          eng.spreadTracker[name] = p.oscSpread;
+        }
+        if (sc.oscType.startsWith("am") || sc.oscType.startsWith("fm")) {
+          eng.synths[name].set({ oscillator: { harmonicity: p.harmonicity } });
+        }
+        if (sc.oscType.startsWith("fm")) {
+          eng.synths[name].set({ oscillator: { modulationIndex: p.modulationIndex } });
         }
       }
     } else {
       const isFat = t.startsWith("fat");
+      const isAMFM = t.startsWith("am") || t.startsWith("fm");
+      const isFM = t.startsWith("fm");
       for (const name of SIGN_NAMES) {
         eng.synths[name].set({ oscillator: { type: t } });
+        eng.oscTypeTracker[name] = t;
         if (isFat) {
           eng.synths[name].set({
             oscillator: {
               count: SIGN_CHARACTER[name].oscCount,
-              spread: SIGN_CHARACTER[name].oscSpread,
+              spread: p.oscSpread,
             },
           });
-          eng.spreadTracker[name] = SIGN_CHARACTER[name].oscSpread;
+          eng.spreadTracker[name] = p.oscSpread;
+        }
+        if (isAMFM) {
+          eng.synths[name].set({ oscillator: { harmonicity: p.harmonicity } });
+        }
+        if (isFM) {
+          eng.synths[name].set({ oscillator: { modulationIndex: p.modulationIndex } });
         }
       }
     }
     pendingOscTypeRef.current = null;
   }
 
-  // Restore spread + detune to per-sign defaults (Eclipse exit, Breathe shadow cleanup, toggleShadow exit)
+  // Restore spread + detune (Eclipse exit, Breathe shadow cleanup, toggleShadow exit)
   function restoreSpreadAndDetune(eng) {
+    const spreadVal = paramsRef.current.oscSpread;
     for (const name of SIGN_NAMES) {
       const sc = SIGN_CHARACTER[name];
       const signType = activeOscTypeRef.current ?? sc.oscType;
       if (signType.startsWith("fat")) {
-        eng.synths[name].set({ oscillator: { spread: sc.oscSpread } });
-        eng.spreadTracker[name] = sc.oscSpread;
+        eng.synths[name].set({ oscillator: { spread: spreadVal } });
+        eng.spreadTracker[name] = spreadVal;
       }
       eng.synths[name].set({ detune: sc.detuneCents });
       eng.detuneTracker[name] = sc.detuneCents;
@@ -1575,6 +1848,8 @@ export default function App() {
       setActiveSigns((prev) => {
         const next = new Set(prev);
         if (next.has(sign)) {
+          if (_diag.noteEvents.length >= 100) _diag.noteEvents.shift();
+          _diag.noteEvents.push({ type: 'release', sign, time: performance.now() });
           eng.synths[sign].releaseAll(Tone.now());
           eng.synths[sign].set({ detune: cfg.detuneCents });
           next.delete(sign);
@@ -1594,6 +1869,8 @@ export default function App() {
             });
           }
           applyAdaptiveVoicing(eng, next.size + 1);
+          if (_diag.noteEvents.length >= 100) _diag.noteEvents.shift();
+          _diag.noteEvents.push({ type: 'attack', sign, time: performance.now() });
           eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
           next.add(sign);
           const pal = SIGN_COLORS[sign];
@@ -1916,14 +2193,17 @@ export default function App() {
         });
       }
 
-      // Fire all signs simultaneously
+      // Fire signs — simultaneous when stagger=0, cascaded when stagger>0
+      const staggerSec = p.stagger || 0;
+      const now = Tone.now();
+      const nowPerf = performance.now();
       applyAdaptiveVoicing(eng, chordSigns.length);
       const activatedSigns = new Set();
-      for (const { sign, detuneCents } of chordSigns) {
+      chordSigns.forEach(({ sign, detuneCents }, i) => {
         const cfg = SIGN_CHARACTER[sign];
         const note = `${cfg.note}${cfg.octave}`;
         eng.synths[sign].set({ detune: detuneCents });
-        eng.synths[sign].triggerAttack(note, Tone.now(), cfg.vel);
+        eng.synths[sign].triggerAttack(note, now + staggerSec * i, cfg.vel);
         activatedSigns.add(sign);
 
         const pal = SIGN_COLORS[sign];
@@ -1931,7 +2211,7 @@ export default function App() {
         colorIndexRef.current[sign] = (ci + 1) % 4;
         visualStateRef.current[sign] = {
           stage: "attack",
-          startTime: performance.now(),
+          startTime: nowPerf + staggerSec * i * 1000,
           envelopeLevel: 0,
           attackTime: p.attack * cfg.attackMul * VIS_SPEED,
           decayTime: p.decay * cfg.decayMul * VIS_SPEED,
@@ -1940,7 +2220,7 @@ export default function App() {
           releaseStartLevel: 0,
           activeColor: pal ? hexToRgb(pal[ci]) : [144, 112, 204],
         };
-      }
+      });
       setActiveSigns(activatedSigns);
       setStatus("playing");
       if (startLoopRef.current) startLoopRef.current();
@@ -2196,7 +2476,7 @@ export default function App() {
 
       </div>
       <div className="cel-footer">
-        <p>v12 &middot; 12&times;2 &middot; 44.1kHz &middot; 35 knobs</p>
+        <p>v12 &middot; 12&times;2 &middot; 44.1kHz &middot; 39 knobs</p>
         <h1 className="cel-title">celezdial selekta</h1>
       </div>
     </>
@@ -2244,6 +2524,7 @@ const CSS = `
     z-index: -1;
     pointer-events: none;
     contain: strict;
+    will-change: transform;   /* promote to GPU layer; scroll won't repaint it */
   }
 
   /* ── Title + Oracle ────────────────────────────────── */

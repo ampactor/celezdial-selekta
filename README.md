@@ -1,6 +1,6 @@
 # Celezdial Selekta
 
-Polyphonic ambient synthesizer mapped to the zodiac. 12 voices on a chromatic wheel (C–B), toggled by a zodiac keyboard, shaped by 35 knobs across 8 swappable FX chains. Built with React and Tone.js.
+Polyphonic ambient synthesizer mapped to the zodiac. 12 voices on a chromatic wheel (C–B), toggled by a zodiac keyboard, shaped by 39 knobs across 8 swappable FX chains. Built with React and Tone.js.
 
 ## Signal Chain (Zodiac — active default)
 
@@ -148,10 +148,11 @@ Eight pre-wired chains — same nodes, different order, different character:
 
 **Keyboard** — 12 zodiac keys, click to toggle voices on/off. Chromatic layout C through B.
 
-**35 Knobs** — Drag vertically. Shift+drag for fine. Double-click to reset.
+**39 Knobs** — Drag vertically. Shift+drag for fine. Double-click to reset.
 
 | Group | Knobs |
 |-------|-------|
+| Oscillator | HARM (AM/FM harmonicity), MOD (FM mod index), SPRD (fat detuning ¢), STGR (natal stagger) |
 | Envelope | ATK, DEC, SUS, REL (× per-sign planetary multiplier) |
 | Vibrato | RATE, DPTH, MIX |
 | Pan | RATE, WDTH |
@@ -173,7 +174,7 @@ Eight pre-wired chains — same nodes, different order, different character:
 
 **Randomize** — Throws the knobs.
 
-**Snapshot** — Save downloads a `.json` file capturing the full sound state (all 35 knob values, active signs, chain, osc type, listen preset, eclipse state). Copy puts the same JSON on the clipboard. Enough to recreate the sound in another Tone.js project.
+**Snapshot** — Save downloads a `.json` file capturing the full sound state (all 39 knob values, active signs, chain, osc type, listen preset, eclipse state). Copy puts the same JSON on the clipboard. Enough to recreate the sound in another Tone.js project.
 
 ## Natal Chart
 

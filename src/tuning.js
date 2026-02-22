@@ -108,8 +108,13 @@ export const TUNING = {
   monitorLowFreq: 400, // Hz — low/mid crossover
   monitorHighFreq: 2500, // Hz — mid/high crossover
 
+  // ── Oscillator internals ──
+  harmonicity: 1, // AM/FM modulator:carrier ratio — integer = harmonic, non-integer = bell/metallic
+  modulationIndex: 2, // FM modulation depth — low = subtle, high = aggressive spectrum
+  oscSpread: 8, // cents — fat oscillator detuning width (unison thickness)
+
   // ── Stagger / retrigger ──
-  stagger: 0.9, // seconds — narrative emergence, each sign announces itself
+  stagger: 0, // seconds — delay between voice entries in natal chord (0 = simultaneous)
   retriggerGap: 80, // ms — minimum gap before a voice can retrigger
 
   // ── Phaser (Grit macro, dormant below 0.5) ──
@@ -185,12 +190,17 @@ export const SHADOW = {
 
 
 // ─── Knob Definitions ────────────────────────────────────────
-// 35 direct-control knobs, one per audio parameter.
+// 39 direct-control knobs, one per audio parameter.
 // Each knob maps directly to a single Tone.js param — no macros.
 // scale: "linear" | "log" | "step"
 // unit: "s" | "ms" | "dB" | "Hz" | "%" | ""
 // default: references TUNING.x — single source of truth.
 export const KNOB_DEFS = {
+  // ── Oscillator ──
+  harmonicity:     { label: "HARM", group: "oscillator",  min: 0.25,  max: 8,     default: TUNING.harmonicity,     scale: "log",    unit: "" },
+  modulationIndex: { label: "MOD",  group: "oscillator",  min: 0.1,   max: 20,    default: TUNING.modulationIndex, scale: "log",    unit: "" },
+  oscSpread:       { label: "SPRD", group: "oscillator",  min: 0,     max: 200,   default: TUNING.oscSpread,       scale: "linear", unit: "" },
+  stagger:         { label: "STGR", group: "oscillator",  min: 0,     max: 3,     default: TUNING.stagger,         scale: "linear", unit: "s" },
   // ── Envelope ──
   attack:          { label: "ATK",  group: "envelope",   min: 0.01,  max: 10,    default: TUNING.attack,          scale: "log",    unit: "s" },
   decay:           { label: "DEC",  group: "envelope",   min: 0.1,   max: 10,    default: TUNING.decay,           scale: "log",    unit: "s" },
@@ -243,6 +253,7 @@ export const KNOB_DEFS = {
 // Pan is per-voice pre-chain, pairs naturally with vibrato.
 // Groups sharing a row number render side-by-side.
 export const KNOB_GROUPS = [
+  { key: "oscillator", label: "Oscillator" },
   { key: "envelope",   label: "Envelope" },
   { key: "vibrato",    label: "Vibrato",    row: 1 },
   { key: "pan",        label: "Pan",        row: 1 },
