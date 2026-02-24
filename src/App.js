@@ -1014,7 +1014,7 @@ async function createEngine() {
   Object.entries(SIGN_CHARACTER).forEach(([name, cfg]) => {
     const panner = new Tone.Panner(cfg.panBase);
     const synth = new Tone.PolySynth(Tone.Synth, {
-      maxPolyphony: 2,
+      maxPolyphony: 1,
       voice: Tone.Synth,
       options: {
         oscillator: {
