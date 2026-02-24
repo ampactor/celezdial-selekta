@@ -2488,7 +2488,7 @@ export default function App() {
 const CSS = `
   @font-face {
     font-family: 'Spiral ST';
-    src: url('${process.env.PUBLIC_URL}/fonts/spiral-st/SpiralST.ttf') format('truetype');
+    src: url('/fonts/spiral-st/SpiralST.ttf') format('truetype');
     font-display: swap;
   }
 
