@@ -194,14 +194,14 @@ Natal chord fires simultaneously (stagger 0) and rings until manually stopped â€
 
 ```bash
 npm install
-npm start
+npm run dev
 ```
 
 ## Tuning
 
 All sound-shaping numbers live in `src/tuning.js`: TUNING, OSC_TYPES, SHADOW, KNOB_DEFS, KNOB_GROUPS, LISTEN_PRESETS, CHAINS, ACTIVE_CHAIN, ZODIAC_NOTES, OCTAVE_GAIN, COUSTO_DETUNE, SIGN_RULERS, PLANETARY_CHARACTER. Change a value, hear the difference. Alternative tuning profiles in `src/presets/` (deep-space-oracle, glass-meridian, tape-seance, harmonic-furnace, zodiac) are drop-in replacements for tuning.js.
 
-Engine + UI + visuals live in `src/App.js`.
+Engine + UI + visuals live in `src/App.jsx`.
 
 ## Deploy
 

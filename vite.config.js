@@ -14,6 +14,13 @@ export default defineConfig({
   build: {
     outDir: "build",
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          tone: ["tone"],
+        },
+      },
+    },
   },
   server: {
     port: 3000,

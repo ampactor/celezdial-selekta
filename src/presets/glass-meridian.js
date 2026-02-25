@@ -219,7 +219,7 @@ export const MACROS = {
     default: 0.3,             // below center — pure crystal by default
     params: {
       // Chebyshev params: mapped for interface compatibility, no audible effect in glass
-      gritDrive:    (m) => 0.0,         // always off — glass chain
+      gritDrive:    () => 0.0,         // always off — glass chain
       chebyOrder:   () => 1,            // pass-through order, never wired
       // Distortion: also not in glass chain signal path
       satDrive:     () => 0.0,
