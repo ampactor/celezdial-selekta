@@ -93,7 +93,7 @@ import React, {
   useEffect,
   useMemo,
 } from "react";
-import * as Tone from "tone";
+let Tone = null;
 import { Origin, Horoscope } from "circular-natal-horoscope-js";
 import {
   TUNING,
@@ -746,6 +746,7 @@ const Knob = React.memo(function Knob({
 let _enginePromise = null; // creation lock — prevents duplicate contexts
 
 async function createEngine() {
+  Tone = await import("tone");
   const yield_ = () => new Promise(r => setTimeout(r, 0));
   // iOS: route through media channel — bypasses mute switch (iOS 17+)
   if ("audioSession" in navigator) {
@@ -1434,6 +1435,7 @@ export default function App() {
   useEffect(() => {
     const tryResume = async () => {
       try {
+        if (!Tone) return;
         if (Tone.getContext()?.rawContext?.state !== "running") {
           await Tone.start();
           const raw = Tone.getContext()?.rawContext;
@@ -1914,27 +1916,6 @@ export default function App() {
 
   const breathe = useCallback(async () => {
     const eng = await ensureEngine();
-    if (natalTimeoutIdsRef.current.length > 0) {
-      stopNatalPlayback(eng);
-    }
-    const p = paramsRef.current || initParams();
-    const release = p.release;
-    if (activeSigns.size > 0) {
-      for (const name of SIGN_NAMES) eng.synths[name].releaseAll(Tone.now());
-      for (const sign of activeSigns) {
-        const vs = visualStateRef.current[sign];
-        if (vs) {
-          vs.releaseStartLevel = vs.envelopeLevel;
-          vs.stage = "release";
-          vs.startTime = performance.now();
-          vs.releaseTime =
-            release * SIGN_CHARACTER[sign].releaseMul * VIS_SPEED;
-        }
-      }
-      applyAdaptiveVoicing(eng, 0);
-      setActiveSigns(new Set());
-      setStatus("ready");
-    }
     if (shadow) {
       const { reverb, echoFeedbackGain, echoCrossfade, vibrato, chebyshev } =
         eng.fx;
@@ -1955,7 +1936,7 @@ export default function App() {
       restoreSpreadAndDetune(eng);
       setShadow(false);
     }
-    // Defer osc type change — cycles null → 0 → 1 → ... → 7 → null → ...
+    // Cycle osc type — null → 0 → 1 → ... → 7 → null → ...
     const next =
       oscIndex === null
         ? 0
@@ -1965,7 +1946,30 @@ export default function App() {
     pendingOscTypeRef.current = next === null ? "per-sign" : OSC_TYPES[next];
     activeOscTypeRef.current = next === null ? null : OSC_TYPES[next];
     setOscIndex(next);
-  }, [activeSigns, ensureEngine, oscIndex, shadow, stopNatalPlayback]);
+    // Apply immediately if notes are sounding
+    if (activeSigns.size > 0) {
+      applyPendingOscType(eng);
+    }
+  }, [activeSigns, ensureEngine, oscIndex, shadow]);
+
+  const stopAll = useCallback(async () => {
+    const eng = await ensureEngine();
+    stopNatalPlayback(eng);
+    const p = paramsRef.current || initParams();
+    const release = p.release;
+    for (const sign of activeSigns) {
+      const vs = visualStateRef.current[sign];
+      if (vs) {
+        vs.releaseStartLevel = vs.envelopeLevel;
+        vs.stage = "release";
+        vs.startTime = performance.now();
+        vs.releaseTime = release * SIGN_CHARACTER[sign].releaseMul * VIS_SPEED;
+      }
+    }
+    applyAdaptiveVoicing(eng, 0);
+    setActiveSigns(new Set());
+    setStatus("ready");
+  }, [activeSigns, ensureEngine, stopNatalPlayback]);
 
   const toggleShadow = useCallback(async () => {
     const eng = await ensureEngine();
@@ -2334,10 +2338,10 @@ export default function App() {
             <button
               type="button"
               className="cel-btn cel-natal-play"
-              onClick={computeAndPlay}
-              disabled={!natalDate}
+              onClick={activeSigns.size > 0 ? stopAll : computeAndPlay}
+              disabled={activeSigns.size === 0 && !natalDate}
             >
-              Play
+              {activeSigns.size > 0 ? "Stop" : "Play"}
             </button>
             {natalActivations && Object.keys(natalActivations).length > 0 && (
               <div className="cel-natal-grid">
