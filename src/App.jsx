@@ -108,6 +108,21 @@ import {
   PLANETARY_CHARACTER,
   SIGN_RULERS,
 } from "./tuning";
+import {
+  hexToRgb,
+  rgbToHex,
+  formatValue,
+  logMap,
+  stepMap,
+  arcPoint,
+  describeArc,
+  KNOB_TRACK_PATH,
+  KNOB_R,
+  KNOB_CX,
+  KNOB_CY,
+  KNOB_START,
+  KNOB_SWEEP,
+} from "./utils";
 
 // ─── Font Constants ───────────────────────────────────────────
 // "'Rudelsberg', serif"
@@ -312,16 +327,7 @@ const SIGN_COLORS = {
 const COLOR_OFF = "#0c0c0c";
 const KNOB_DEFAULT_COLOR = "#9070cc";
 
-function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-function rgbToHex(r, g, b) {
-  return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
-}
-
 const VIS_SPEED = 0.65; // visual envelope runs ~35% faster than audio
-const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const KEYBOARD_ORDER = Object.keys(SIGNS);
 const SHARP_INDICES = new Set([1, 3, 6, 8, 10]);
@@ -593,57 +599,6 @@ const KNOB_MAP = {
     },
   },
 };
-
-function formatValue(value, def) {
-  const u = def.unit || "";
-  if (def.scale === "step") return String(Math.round(value));
-  if (u === "dB") return `${value > 0 ? "+" : ""}${value.toFixed(0)}`;
-  if (u === "Hz")
-    return value >= 1000
-      ? `${(value / 1000).toFixed(1)}k`
-      : `${value.toFixed(0)}`;
-  if (u === "s")
-    return value < 1
-      ? `${(value * 1000).toFixed(0)}ms`
-      : `${value.toFixed(1)}s`;
-  if (u === "ms") return `${value.toFixed(0)}ms`;
-  if (u === "%") return `${(value * 100).toFixed(0)}%`;
-  return value.toFixed(2);
-}
-
-// Log/step scale mappers — pure functions, hoisted for stable references
-const logMap = (min, max) => ({
-  mapFromNorm: (n) => min * Math.pow(max / min, n),
-  mapToNorm: (v) => Math.log(v / min) / Math.log(max / min),
-});
-const stepMap = (min, max) => ({
-  mapFromNorm: (n) => Math.round(min + n * (max - min)),
-  mapToNorm: (v) => (v - min) / (max - min),
-});
-
-// ─── SVG Arc Knob Geometry (hoisted — computed once) ─────────
-
-const DEG_TO_RAD = Math.PI / 180;
-const KNOB_R = 22,
-  KNOB_CX = 28,
-  KNOB_CY = 28;
-const KNOB_START = -135,
-  KNOB_END = 135,
-  KNOB_SWEEP = 270;
-
-const arcPoint = (angle) => ({
-  x: KNOB_CX + KNOB_R * Math.cos((angle - 90) * DEG_TO_RAD),
-  y: KNOB_CY + KNOB_R * Math.sin((angle - 90) * DEG_TO_RAD),
-});
-
-const describeArc = (start, end) => {
-  const s = arcPoint(start);
-  const e = arcPoint(end);
-  const large = end - start > 180 ? 1 : 0;
-  return `M ${s.x} ${s.y} A ${KNOB_R} ${KNOB_R} 0 ${large} 1 ${e.x} ${e.y}`;
-};
-
-const KNOB_TRACK_PATH = describeArc(KNOB_START, KNOB_END);
 
 // ─── SVG Arc Knob Component ──────────────────────────────────
 
